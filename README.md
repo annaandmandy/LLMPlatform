@@ -15,7 +15,7 @@ User Browser
     ↓
 Next.js Frontend (Vercel)
     ↓ HTTP/JSON
-FastAPI Backend (Render)
+FastAPI Backend (Railway)
     ↓
 MongoDB Atlas (Cloud Database)
 ```
@@ -209,10 +209,10 @@ NEXT_PUBLIC_BACKEND_URL=http://localhost:8000
 
 ## Deployment
 
-### Deploy Backend to Render
+### Deploy Backend to Railway
 
 1. Push code to GitHub
-2. Create new **Web Service** on [Render](https://render.com)
+2. Create new **Web Service** on Railway
 3. Connect your repository
 4. Select `fastapi-llm-logger` directory
 5. Set build command: `pip install -r requirements.txt`

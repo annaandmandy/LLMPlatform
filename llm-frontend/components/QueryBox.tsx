@@ -141,7 +141,7 @@ export default function QueryBox({
             </button>
 
             {showModelSelector && (
-            <div className="absolute right-0 bottom-full mb-2 w-64 bg-white rounded-lg shadow-xl border border-gray-200 z-10">
+            <div className="absolute right-0 bottom-full mb-2 w-64 bg-white rounded-lg shadow-xl border border-gray-200 z-10 max-h-80 overflow-y-auto">
               <div className="p-2">
                 {AVAILABLE_MODELS.map((model) => (
                   <button
