@@ -6,6 +6,7 @@ import MessageHistory from "@/components/MessageHistory";
 import EventTracker from "@/components/EventTracker";
 import Sidebar from "@/components/Sidebar";
 import TermsModal from "@/components/TermsModal";
+import ClearUserModal from "@/components/ClearUserModal";
 
 interface Citation {
   title: string;
@@ -27,8 +28,6 @@ interface ChatSession {
   timestamp: Date;
 }
 
-const DEMO_USER_ID = "demo-user";
-
 export default function Home() {
   const [query, setQuery] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
@@ -39,6 +38,7 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
+  const [showClearUserModal, setShowClearUserModal] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -50,9 +50,13 @@ export default function Home() {
       setShowTermsModal(true);
     }
 
-    // Use demo user ID for now
-    setUserId(DEMO_USER_ID);
-    localStorage.setItem("user_id", DEMO_USER_ID);
+    // Generate or retrieve unique user ID (UUID)
+    let id = localStorage.getItem("user_id");
+    if (!id) {
+      id = crypto.randomUUID();
+      localStorage.setItem("user_id", id);
+    }
+    setUserId(id);
 
     // Generate or load session ID
     let sId = sessionStorage.getItem("session_id");
@@ -79,8 +83,9 @@ export default function Home() {
   }, [messages, sessionId]);
 
   const loadSession = (sId: string) => {
+    if (!userId) return;
     try {
-      const sessionsData = localStorage.getItem(`chat_sessions_${DEMO_USER_ID}`);
+      const sessionsData = localStorage.getItem(`chat_sessions_${userId}`);
       if (sessionsData) {
         const sessions: ChatSession[] = JSON.parse(sessionsData);
         const session = sessions.find((s) => s.id === sId);
@@ -99,8 +104,9 @@ export default function Home() {
   };
 
   const saveCurrentSession = () => {
+    if (!userId) return;
     try {
-      const sessionsData = localStorage.getItem(`chat_sessions_${DEMO_USER_ID}`);
+      const sessionsData = localStorage.getItem(`chat_sessions_${userId}`);
       let sessions: ChatSession[] = sessionsData ? JSON.parse(sessionsData) : [];
 
       // Generate title from first user message
@@ -134,7 +140,7 @@ export default function Home() {
       // Keep only last 50 sessions
       sessions = sessions.slice(0, 50);
 
-      localStorage.setItem(`chat_sessions_${DEMO_USER_ID}`, JSON.stringify(sessions));
+      localStorage.setItem(`chat_sessions_${userId}`, JSON.stringify(sessions));
     } catch (error) {
       console.error("Error saving session:", error);
     }
@@ -181,6 +187,20 @@ export default function Home() {
     alert("You must accept the terms to use this service.");
   };
 
+  const handleClearUser = () => {
+    // Clear all user data from localStorage
+    const oldUserId = localStorage.getItem("user_id");
+    if (oldUserId) {
+      localStorage.removeItem(`chat_sessions_${oldUserId}`);
+    }
+    localStorage.removeItem("user_id");
+    localStorage.removeItem("terms_accepted");
+    sessionStorage.clear();
+
+    // Reload the page to start fresh
+    window.location.reload();
+  };
+
   return (
     <div className="h-screen flex">
       {/* Terms Modal */}
@@ -190,57 +210,101 @@ export default function Home() {
         onDecline={handleDeclineTerms}
       />
 
+      {/* Clear User Modal */}
+      <ClearUserModal
+        isOpen={showClearUserModal}
+        onConfirm={handleClearUser}
+        onCancel={() => setShowClearUserModal(false)}
+      />
+
       {/* Sidebar */}
       <Sidebar
         currentSessionId={sessionId}
+        userId={userId}
         onNewChat={handleNewChat}
         onSelectSession={handleSelectSession}
         isOpen={sidebarOpen}
         onToggle={() => setSidebarOpen(!sidebarOpen)}
         onShowTerms={() => setShowTermsModal(true)}
+        onShowClearUserModal={() => setShowClearUserModal(true)}
       />
 
       {/* Main content area */}
       <main className={`flex-1 flex flex-col bg-gradient-to-br from-blue-50 to-indigo-100 transition-all duration-300 overflow-hidden ${
         sidebarOpen ? "lg:ml-64" : ""
       }`}>
-        <header className="flex-shrink-0 py-6 px-8 text-center border-b border-gray-200 bg-white/80 backdrop-blur-sm">
-          <h1 className="text-3xl font-bold text-gray-800 mb-1">
-            LLM Brand Experiment
-          </h1>
-          <p className="text-gray-600 text-sm">
-            Explore brands and products with AI-powered insights
-          </p>
-        </header>
+        {messages.length === 0 ? (
+          /* Centered layout for new chat */
+          <div className="flex-1 flex flex-col items-center justify-center p-8">
+            <div className="max-w-3xl w-full space-y-8">
+              {/* Centered Title */}
+              <div className="text-center space-y-3">
+                <h1 className="text-4xl font-bold text-gray-800">
+                  LLM Brand Experiment
+                </h1>
+                <p className="text-gray-600 text-lg">
+                  Explore brands and products with AI-powered insights
+                </p>
+              </div>
 
-        {/* Message area with full-width scrollbar */}
-        <div className="flex-1 overflow-y-auto">
-          <div className="max-w-4xl w-full mx-auto">
-            <MessageHistory
-              messages={messages}
-              userId={userId}
-              sessionId={sessionId}
-              messagesEndRef={messagesEndRef}
-            />
+              {/* Centered Query Box */}
+              <div className="bg-white rounded-xl shadow-lg p-6">
+                <QueryBox
+                  query={query}
+                  setQuery={setQuery}
+                  addMessage={addMessage}
+                  userId={userId}
+                  sessionId={sessionId}
+                  isLoading={isLoading}
+                  setIsLoading={setIsLoading}
+                  selectedModel={selectedModel}
+                  setSelectedModel={setSelectedModel}
+                />
+              </div>
+            </div>
           </div>
-        </div>
+        ) : (
+          /* Normal layout with header and messages */
+          <>
+            <header className="flex-shrink-0 py-6 px-8 text-center border-b border-gray-200 bg-white/80 backdrop-blur-sm">
+              <h1 className="text-3xl font-bold text-gray-800 mb-1">
+                LLM Brand Experiment
+              </h1>
+              <p className="text-gray-600 text-sm">
+                Explore brands and products with AI-powered insights
+              </p>
+            </header>
 
-        {/* Query box - fixed at bottom */}
-        <div className="flex-shrink-0 bg-white border-t border-gray-200">
-          <div className="max-w-4xl w-full mx-auto p-4">
-            <QueryBox
-              query={query}
-              setQuery={setQuery}
-              addMessage={addMessage}
-              userId={userId}
-              sessionId={sessionId}
-              isLoading={isLoading}
-              setIsLoading={setIsLoading}
-              selectedModel={selectedModel}
-              setSelectedModel={setSelectedModel}
-            />
-          </div>
-        </div>
+            {/* Message area with full-width scrollbar */}
+            <div className="flex-1 overflow-y-auto">
+              <div className="max-w-4xl w-full mx-auto">
+                <MessageHistory
+                  messages={messages}
+                  userId={userId}
+                  sessionId={sessionId}
+                  messagesEndRef={messagesEndRef}
+                />
+              </div>
+            </div>
+
+            {/* Query box - fixed at bottom */}
+            <div className="flex-shrink-0 bg-white border-t border-gray-200">
+              <div className="max-w-4xl w-full mx-auto p-4">
+                <QueryBox
+                  query={query}
+                  setQuery={setQuery}
+                  addMessage={addMessage}
+                  userId={userId}
+                  sessionId={sessionId}
+                  isLoading={isLoading}
+                  setIsLoading={setIsLoading}
+                  selectedModel={selectedModel}
+                  setSelectedModel={setSelectedModel}
+                />
+              </div>
+            </div>
+          </>
+        )}
 
         <EventTracker userId={userId} sessionId={sessionId} />
       </main>
