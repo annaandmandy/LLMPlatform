@@ -125,72 +125,62 @@ def call_openai(model: str, query: str):
     return text.strip(), sources, response.model_dump()
 
 
-def call_anthropic(model: str, query: str):
-    """
-    Call Claude 3.5 with the new web_search_20250305 tool.
-    Handles Anthropic SDK's typed content blocks safely.
-    """
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+def call_openai(model: str, query: str):
+    from openai import OpenAI
+    import os
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-    response = client.messages.create(
-        model=model,
-        max_tokens=1024,
-        tools=[{
-            "type": "web_search_20250305",
-            "name": "web_search",
-            "max_uses": 5
-        }],
-        messages=[{"role": "user", "content": query}]
-    )
+    messages = [
+        {"role": "system", "content": (
+            "You are ChatGPT: a concise, markdown-savvy assistant. "
+            "Use short paragraphs and lists when helpful. Provide citations if possible."
+        )},
+        {"role": "user", "content": query}
+    ]
 
-    text_parts = []
-    citations = []
+    # Detect built-in search models
+    use_chat_api = any(tag in model for tag in ["search-preview", "search-api"])
 
-    # Safely iterate content blocks (these are typed SDK objects)
-    for block in getattr(response, "content", []):
-        # Unified way to get type
-        block_type = getattr(block, "type", None) or (block.get("type") if isinstance(block, dict) else None)
+    if use_chat_api:
+        # --- Chat Completions API for web-search-enabled models ---
+        response = client.chat.completions.create(model=model, messages=messages)
+        msg = response.choices[0].message
+        text = msg.content or ""
+        sources = []
 
-        # ---- TEXT BLOCKS ----
-        if block_type == "text":
-            text_value = getattr(block, "text", "") or (block.get("text") if isinstance(block, dict) else "")
-            text_parts.append(text_value)
-
-            # ✅ Inline citations inside text blocks
-            block_citations = getattr(block, "citations", []) or (block.get("citations") if isinstance(block, dict) else [])
-            for cite in block_citations or []:
-                citations.append({
-                    "title": getattr(cite, "title", "") or (cite.get("title") if isinstance(cite, dict) else ""),
-                    "url": getattr(cite, "url", "") or (cite.get("url") if isinstance(cite, dict) else ""),
-                    "snippet": getattr(cite, "cited_text", "") or (cite.get("cited_text") if isinstance(cite, dict) else "")
-                })
-
-        # ---- WEB SEARCH RESULTS ----
-        elif block_type == "web_search_tool_result":
-            block_content = getattr(block, "content", []) or (block.get("content") if isinstance(block, dict) else [])
-            for result in block_content or []:
-                result_type = getattr(result, "type", None) or (result.get("type") if isinstance(result, dict) else None)
-                if result_type == "web_search_result":
-                    citations.append({
-                        "title": getattr(result, "title", "") or (result.get("title") if isinstance(result, dict) else ""),
-                        "url": getattr(result, "url", "") or (result.get("url") if isinstance(result, dict) else ""),
-                        "snippet": getattr(result, "page_age", "") or (result.get("page_age") if isinstance(result, dict) else "")
+        # ✅ annotations live at message level
+        if hasattr(msg, "annotations"):
+            for ann in msg.annotations:
+                ann_type = getattr(ann, "type", None)
+                if ann_type == "url_citation":
+                    uc = getattr(ann, "url_citation", {})
+                    sources.append({
+                        "title": getattr(uc, "title", "") or uc.get("title", ""),
+                        "url": getattr(uc, "url", "") or uc.get("url", "")
                     })
 
-        # (optional) ignore ServerToolUseBlock, etc.
-        else:
-            continue
+    else:
+        # --- Responses API for standard models ---
+        response = client.responses.create(
+            model=model,
+            input=messages,
+            tools=[{"type": "web_search"}]
+        )
+        text, sources = "", []
+        for item in getattr(response, "output", []):
+            for content in getattr(item, "content", []) or []:
+                if getattr(content, "type", None) == "output_text":
+                    text += getattr(content, "text", "")
+                for ann in getattr(content, "annotations", []) or []:
+                    if getattr(ann, "type", None) == "url_citation":
+                        sources.append({
+                            "title": getattr(ann, "title", ""),
+                            "url": getattr(ann, "url", "")
+                        })
 
-    # remove duplicates by URL
-    seen, unique = set(), []
-    for c in citations:
-        url = c.get("url")
-        if url and url not in seen:
-            seen.add(url)
-            unique.append(c)
+    return text.strip(), sources, getattr(response, "model_dump", lambda: response)()
 
-    text = "\n".join(text_parts).strip()
-    return text, unique, response.model_dump()
+
 
 
 def call_gemini(model: str, query: str):

@@ -196,8 +196,7 @@ The platform tracks the following user events:
 
 ```bash
 MONGODB_URI=mongodb+srv
-MONGO_DB=llm_experiment
-LITELLM_MODEL=gpt-4o-mini
+MONGO_DB=llm_experimentß
 OPENAI_API_KEY=sk-xxxxx
 ```
 
