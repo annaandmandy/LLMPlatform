@@ -57,39 +57,12 @@ export default function EventTracker({ userId, sessionId }: EventTrackerProps) {
       }, 500); // Wait 500ms after user stops scrolling
     };
 
-    // Track page visibility changes
-    const handleVisibilityChange = async () => {
-      if (document.visibilityState === "hidden") {
-        try {
-          await fetch(`${backendUrl}/log_event`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              user_id: userId,
-              session_id: sessionId,
-              event_type: "browse",
-              page_url: window.location.href,
-              extra_data: {
-                action: "page_hidden",
-              },
-            }),
-          });
-        } catch (err) {
-          console.error("Error logging visibility event:", err);
-        }
-      }
-    };
-
     // Add event listeners
     window.addEventListener("scroll", handleScroll, { passive: true });
-    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     // Cleanup
     return () => {
       window.removeEventListener("scroll", handleScroll);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
       if (scrollTimeoutRef.current) {
         clearTimeout(scrollTimeoutRef.current);
       }
