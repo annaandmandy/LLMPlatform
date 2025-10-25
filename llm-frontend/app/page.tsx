@@ -5,6 +5,7 @@ import QueryBox from "@/components/QueryBox";
 import MessageHistory from "@/components/MessageHistory";
 import EventTracker from "@/components/EventTracker";
 import Sidebar from "@/components/Sidebar";
+import TermsModal from "@/components/TermsModal";
 
 interface Citation {
   title: string;
@@ -36,9 +37,19 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [selectedModel, setSelectedModel] = useState("gpt-4o-mini");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [showTermsModal, setShowTermsModal] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    // Check if user has already accepted terms
+    const hasAcceptedTerms = localStorage.getItem("terms_accepted");
+    if (hasAcceptedTerms === "true") {
+      setTermsAccepted(true);
+    } else {
+      setShowTermsModal(true);
+    }
+
     // Use demo user ID for now
     setUserId(DEMO_USER_ID);
     localStorage.setItem("user_id", DEMO_USER_ID);
@@ -159,8 +170,26 @@ export default function Home() {
     setMessages((prev) => [...prev, { role, content, citations, timestamp: new Date() }]);
   };
 
+  const handleAcceptTerms = () => {
+    localStorage.setItem("terms_accepted", "true");
+    setTermsAccepted(true);
+    setShowTermsModal(false);
+  };
+
+  const handleDeclineTerms = () => {
+    // Optionally redirect or show a message
+    alert("You must accept the terms to use this service.");
+  };
+
   return (
     <div className="h-screen flex">
+      {/* Terms Modal */}
+      <TermsModal
+        isOpen={showTermsModal}
+        onAccept={handleAcceptTerms}
+        onDecline={handleDeclineTerms}
+      />
+
       {/* Sidebar */}
       <Sidebar
         currentSessionId={sessionId}
@@ -168,6 +197,7 @@ export default function Home() {
         onSelectSession={handleSelectSession}
         isOpen={sidebarOpen}
         onToggle={() => setSidebarOpen(!sidebarOpen)}
+        onShowTerms={() => setShowTermsModal(true)}
       />
 
       {/* Main content area */}

@@ -15,6 +15,7 @@ interface SidebarProps {
   onSelectSession: (sessionId: string) => void;
   isOpen: boolean;
   onToggle: () => void;
+  onShowTerms: () => void;
 }
 
 export default function Sidebar({
@@ -23,6 +24,7 @@ export default function Sidebar({
   onSelectSession,
   isOpen,
   onToggle,
+  onShowTerms,
 }: SidebarProps) {
   // Demo user ID - in the future this will come from authentication
   const DEMO_USER_ID = "demo-user";
@@ -253,8 +255,8 @@ export default function Sidebar({
           </div>
         )}
 
-        {/* Footer - Demo User Info */}
-        <div className="p-4 border-t border-gray-600">
+        {/* Footer - Demo User Info & Terms */}
+        <div className="p-4 border-t border-gray-600 space-y-3">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center">
               <span className="text-sm font-semibold">D</span>
@@ -264,6 +266,14 @@ export default function Sidebar({
               <div className="text-xs text-gray-400">Not logged in</div>
             </div>
           </div>
+
+          {/* Terms & Privacy Link */}
+          <button
+            onClick={onShowTerms}
+            className="w-full text-left px-2 py-1.5 text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-700 rounded transition-colors"
+          >
+            Terms of Use & Privacy Policy
+          </button>
         </div>
       </div>
 
