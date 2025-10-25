@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  # Backend API Service
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: llm-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - MONGODB_URI=${MONGODB_URI}
+      - MONGO_DB=${MONGO_DB:-llm_experiment}
+      - LITELLM_MODEL=${LITELLM_MODEL:-gpt-4o-mini}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    env_file:
+      - .env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/status')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    networks:
+      - llm-network
+
+  # MongoDB Local (Optional - for local development without Atlas)
+  # mongodb:
+  #   image: mongo:7.0
+  #   container_name: llm-mongodb
+  #   ports:
+  #     - "27017:27017"
+  #   environment:
+  #     - MONGO_INITDB_ROOT_USERNAME=admin
+  #     - MONGO_INITDB_ROOT_PASSWORD=password
+  #     - MONGO_INITDB_DATABASE=llm_experiment
+  #   volumes:
+  #     - mongodb_data:/data/db
+  #   restart: unless-stopped
+  #   networks:
+  #     - llm-network
+
+networks:
+  llm-network:
+    driver: bridge
+
+# volumes:
+#   mongodb_data:
