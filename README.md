@@ -195,7 +195,7 @@ The platform tracks the following user events:
 ### Backend (.env)
 
 ```bash
-MONGODB_URI=mongodb+srv://user:password@cluster.mongodb.net
+MONGODB_URI=mongodb+srv
 MONGO_DB=llm_experiment
 LITELLM_MODEL=gpt-4o-mini
 OPENAI_API_KEY=sk-xxxxx

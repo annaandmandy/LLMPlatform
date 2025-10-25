@@ -252,7 +252,7 @@ llm-frontend/
 
 ### Backend (`.env`)
 ```bash
-MONGODB_URI=mongodb+srv://user:pass@cluster.mongodb.net
+MONGODB_URI=mongodb+srv
 MONGO_DB=llm_experiment
 LITELLM_MODEL=gpt-4o-mini
 OPENAI_API_KEY=sk-proj-xxxxx

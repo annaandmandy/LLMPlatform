@@ -395,7 +395,7 @@ docker rmi llm-backend
 ### Required Variables
 
 ```bash
-MONGODB_URI=mongodb+srv://user:pass@cluster.mongodb.net/llm_experiment
+MONGODB_URI=mongodb+srv
 OPENAI_API_KEY=sk-proj-xxxxx
 ```
 

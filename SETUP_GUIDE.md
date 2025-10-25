@@ -72,7 +72,7 @@ Before starting, ensure you have:
 
 Example:
 ```
-mongodb+srv://llmuser:YOUR_PASSWORD@cluster0.xxxxx.mongodb.net/llm_experiment?retryWrites=true&w=majority
+mongodb+srv:
 ```
 
 ---
@@ -118,7 +118,7 @@ nano .env  # or use your preferred editor
 **Edit .env file:**
 ```bash
 # MongoDB Configuration
-MONGODB_URI=mongodb+srv://llmuser:YOUR_PASSWORD@cluster0.xxxxx.mongodb.net/llm_experiment?retryWrites=true&w=majority
+MONGODB_URI=retryWrites=true&w=majority
 MONGO_DB=llm_experiment
 
 # LiteLLM Configuration
