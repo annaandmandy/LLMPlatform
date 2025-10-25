@@ -105,7 +105,7 @@ export default function MessageHistory({
 
   if (messages.length === 0) {
     return (
-      <div className="flex-1 overflow-y-auto p-8 flex items-center justify-center">
+      <div className="p-8 flex items-center justify-center min-h-[400px]">
         <div className="text-center text-gray-500">
           <p className="text-lg mb-2">No messages yet</p>
           <p className="text-sm">
@@ -117,7 +117,7 @@ export default function MessageHistory({
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-6 space-y-4">
+    <div className="p-6 space-y-4">
       {messages.map((message, index) => {
         const queryContext =
           message.role === "user"
