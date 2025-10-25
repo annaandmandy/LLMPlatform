@@ -321,16 +321,27 @@ def call_openrouter(model: str, query: str):
                 "content": ref.get("content", "")
             })
 
-    # Case 2: xAI / Grok models put them under message.annotations
-    elif "annotations" in data["choices"][0]["message"]:
-        for ann in data["choices"][0]["message"]["annotations"]:
-            if ann.get("type") == "url_citation" and "url_citation" in ann:
-                uc = ann["url_citation"]
+    # --- Case 2: xAI / Grok or GPT-4o-mini:online style ---
+    message = data["choices"][0]["message"]
+
+    # A. annotations field (common for Grok and GPT-4o-mini:online)
+    if "annotations" in message:
+        for ann in message["annotations"]:
+            if ann.get("type") == "url_citation":
                 citations.append({
-                    "title": uc.get("title", ""),
-                    "url": uc.get("url", ""),
-                    "content": uc.get("content", "")
+                    "title": ann.get("title") or ann.get("url_citation", {}).get("title", ""),
+                    "url": ann.get("url") or ann.get("url_citation", {}).get("url", ""),
+                    "content": ann.get("content") or ann.get("url_citation", {}).get("content", "")
                 })
+
+    # B. metadata.citations (used by OpenAI-style models on OpenRouter)
+    elif "metadata" in message and "citations" in message["metadata"]:
+        for c in message["metadata"]["citations"]:
+            citations.append({
+                "title": c.get("title", ""),
+                "url": c.get("url", ""),
+                "content": c.get("snippet", "")
+            })
 
     return text.strip(), citations, data
 

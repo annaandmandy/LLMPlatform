@@ -21,6 +21,7 @@ interface QueryBoxProps {
 
 // ✅ Expanded models with provider info (and web-search enabled)
 const AVAILABLE_MODELS = [
+  { id: "gpt-4o-mini:online", name: "GPT-4o mini", provider: "openrouter" },
   { id: "gpt-5", name: "GPT-5", provider: "openai" },
   { id: "x-ai/grok-3-mini:online", name: "Grok 3 mini", provider: "openrouter" },
   { id: "perplexity/sonar:online", name: "Perplexity Sonar", provider: "openrouter" },
