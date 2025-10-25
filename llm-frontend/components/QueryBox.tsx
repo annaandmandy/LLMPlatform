@@ -22,9 +22,11 @@ interface QueryBoxProps {
 // ✅ Expanded models with provider info (and web-search enabled)
 const AVAILABLE_MODELS = [
   { id: "gpt-5", name: "GPT-5", provider: "openai" },
-  { id: "openrouter/xai/grok-3", name: "Grok 3 🌐", provider: "openrouter" },
-  { id: "openrouter/perplexity/sonar-small-online", name: "Perplexity Sonar Small 🌐", provider: "openrouter" },
-  { id: "anthropic/claude-3-5-sonnet", name: "Claude 3.5 Sonnet", provider: "anthropic" },
+  { id: "x-ai/grok-3-mini:online", name: "Grok 3 mini", provider: "openrouter" },
+  { id: "perplexity/sonar:online", name: "Perplexity Sonar", provider: "openrouter" },
+  { id: "claude-sonnet-4-5-20250929", name: "Claude 4.5 Sonnet", provider: "anthropic" },
+  { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash", provider: "google" },
+
 ];
 
 export default function QueryBox({
@@ -106,7 +108,7 @@ export default function QueryBox({
     }
   };
 
-  const currentModel = AVAILABLE_MODELS.find((m) => m.id === selectedModel);
+  const currentModel = AVAILABLE_MODELS.find((m) => m.id === selectedModel) || AVAILABLE_MODELS[0];
 
   return (
     <div className="w-full">
@@ -137,29 +139,30 @@ export default function QueryBox({
             </button>
 
             {showModelSelector && (
-              <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-xl border border-gray-200 z-10">
-                <div className="p-2">
-                  {AVAILABLE_MODELS.map((model) => (
-                    <button
-                      key={model.id}
-                      type="button"
-                      onClick={() => {
-                        setSelectedModel(model.id);
-                        setShowModelSelector(false);
-                      }}
-                      className={`w-full text-left px-3 py-2 rounded-md transition-colors ${
-                        selectedModel === model.id
-                          ? "bg-blue-100 text-blue-800"
-                          : "hover:bg-gray-100 text-gray-700"
-                      }`}
-                    >
-                      <div className="font-medium">{model.name}</div>
-                      <div className="text-xs text-gray-500">{model.provider}</div>
-                    </button>
-                  ))}
-                </div>
+            <div className="absolute right-0 bottom-full mb-2 w-64 bg-white rounded-lg shadow-xl border border-gray-200 z-10">
+              <div className="p-2">
+                {AVAILABLE_MODELS.map((model) => (
+                  <button
+                    key={model.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedModel(model.id);
+                      setShowModelSelector(false);
+                    }}
+                    className={`w-full text-left px-3 py-2 rounded-md transition-colors ${
+                      selectedModel === model.id
+                        ? "bg-blue-100 text-blue-800"
+                        : "hover:bg-gray-100 text-gray-700"
+                    }`}
+                  >
+                    <div className="font-medium">{model.name}</div>
+                    <div className="text-xs text-gray-500">{model.provider}</div>
+                  </button>
+                ))}
               </div>
-            )}
+            </div>
+          )}
+
           </div>
         </div>
 

@@ -19,6 +19,9 @@ from dotenv import load_dotenv
 from pymongo import MongoClient
 import requests
 from openai import OpenAI
+import anthropic
+from google import genai
+from google.genai import types
 
 # ==== ENV + LOGGING ====
 load_dotenv()
@@ -55,6 +58,7 @@ except Exception as e:
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+GOOGLE_API_KEY=os.getenv("GOOGLE_API_KEY")
 
 # ==== REQUEST SCHEMAS ====
 class QueryRequest(BaseModel):
@@ -118,77 +122,217 @@ def call_openai(model: str, query: str):
     else:
         text = getattr(response, "output_text", "") or ""
 
-
-
     return text.strip(), sources, response.model_dump()
 
 
 def call_anthropic(model: str, query: str):
-    """Call Anthropic API directly (Claude 3 series)"""
-    headers = {
-        "x-api-key": ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-    }
-    payload = {
-        "model": model,
-        "max_tokens": 1024,
-        "messages": [
-            {"role": "user", "content": query}
-        ],
-        "plugins": [{"id": "web", "max_results": 5}],  # ✅ built-in OpenRouter web plugin
-    }
+    """
+    Call Claude 3.5 with the new web_search_20250305 tool.
+    Handles Anthropic SDK's typed content blocks safely.
+    """
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
-    response = requests.post("https://api.anthropic.com/v1/messages", json=payload, headers=headers)
-    response.raise_for_status()
-    data = response.json()
+    response = client.messages.create(
+        model=model,
+        max_tokens=1024,
+        tools=[{
+            "type": "web_search_20250305",
+            "name": "web_search",
+            "max_uses": 5
+        }],
+        messages=[{"role": "user", "content": query}]
+    )
 
-    # Claude 3 returns list of content blocks
-    content_blocks = data.get("content", [])
     text_parts = []
     citations = []
 
-    for block in content_blocks:
-        if block.get("type") == "text":
-            text_parts.append(block.get("text", ""))
-        elif block.get("type") == "citations":
-            for c in block.get("citations", []):
+    # Safely iterate content blocks (these are typed SDK objects)
+    for block in getattr(response, "content", []):
+        # Unified way to get type
+        block_type = getattr(block, "type", None) or (block.get("type") if isinstance(block, dict) else None)
+
+        # ---- TEXT BLOCKS ----
+        if block_type == "text":
+            text_value = getattr(block, "text", "") or (block.get("text") if isinstance(block, dict) else "")
+            text_parts.append(text_value)
+
+            # ✅ Inline citations inside text blocks
+            block_citations = getattr(block, "citations", []) or (block.get("citations") if isinstance(block, dict) else [])
+            for cite in block_citations or []:
                 citations.append({
-                    "source": c.get("source", ""),
-                    "url": c.get("url", ""),
+                    "title": getattr(cite, "title", "") or (cite.get("title") if isinstance(cite, dict) else ""),
+                    "url": getattr(cite, "url", "") or (cite.get("url") if isinstance(cite, dict) else ""),
+                    "snippet": getattr(cite, "cited_text", "") or (cite.get("cited_text") if isinstance(cite, dict) else "")
                 })
 
-    text = "\n".join(text_parts)
-    return text, citations, data
+        # ---- WEB SEARCH RESULTS ----
+        elif block_type == "web_search_tool_result":
+            block_content = getattr(block, "content", []) or (block.get("content") if isinstance(block, dict) else [])
+            for result in block_content or []:
+                result_type = getattr(result, "type", None) or (result.get("type") if isinstance(result, dict) else None)
+                if result_type == "web_search_result":
+                    citations.append({
+                        "title": getattr(result, "title", "") or (result.get("title") if isinstance(result, dict) else ""),
+                        "url": getattr(result, "url", "") or (result.get("url") if isinstance(result, dict) else ""),
+                        "snippet": getattr(result, "page_age", "") or (result.get("page_age") if isinstance(result, dict) else "")
+                    })
+
+        # (optional) ignore ServerToolUseBlock, etc.
+        else:
+            continue
+
+    # remove duplicates by URL
+    seen, unique = set(), []
+    for c in citations:
+        url = c.get("url")
+        if url and url not in seen:
+            seen.add(url)
+            unique.append(c)
+
+    text = "\n".join(text_parts).strip()
+    return text, unique, response.model_dump()
+
+
+def call_gemini(model: str, query: str):
+    """
+    Call Google Gemini (2.x / 1.5) API with web grounding enabled.
+    Handles typed SDK objects and converts response safely to dict.
+    """
+    client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
+
+    # Enable Google Search grounding
+    grounding_tool = types.Tool(google_search=types.GoogleSearch())
+    config = types.GenerateContentConfig(tools=[grounding_tool])
+
+    # Generate content
+    response = client.models.generate_content(
+        model=model,
+        contents=query,
+        config=config,
+    )
+
+    # --- Extract text ---
+    text = ""
+    if hasattr(response, "candidates") and response.candidates:
+        candidate = response.candidates[0]
+        if hasattr(candidate, "content") and candidate.content.parts:
+            for part in candidate.content.parts:
+                if hasattr(part, "text"):
+                    text += part.text + "\n"
+
+    # --- Extract citations ---
+    citations = []
+    candidate = response.candidates[0]
+    metadata = getattr(candidate, "grounding_metadata", None)
+
+    if metadata and getattr(metadata, "grounding_chunks", None):
+        for chunk in metadata.grounding_chunks:
+            web_obj = getattr(chunk, "web", None)
+            if web_obj:
+                citations.append({
+                    "title": getattr(web_obj, "title", ""),
+                    "url": getattr(web_obj, "uri", "")
+                })
+            elif isinstance(chunk, dict) and "web" in chunk:
+                web = chunk["web"]
+                citations.append({
+                    "title": web.get("title", ""),
+                    "url": web.get("uri", "")
+                })
+
+    # remove duplicates
+    seen, unique = set(), []
+    for c in citations:
+        if c["url"] and c["url"] not in seen:
+            seen.add(c["url"])
+            unique.append(c)
+
+    # ✅ Convert response to dict safely
+    try:
+        raw = response.as_dict()  # works in google-genai >= 0.2.0
+    except AttributeError:
+        # fallback: build manually if as_dict is missing
+        raw = {
+            "candidates": [
+                {
+                    "content": [
+                        getattr(p, "text", "")
+                        for p in getattr(response.candidates[0].content, "parts", [])
+                        if hasattr(p, "text")
+                    ],
+                    "grounding_metadata": str(getattr(response.candidates[0], "grounding_metadata", "")),
+                }
+            ]
+        }
+
+    return text.strip(), unique, raw
 
 
 def call_openrouter(model: str, query: str):
-    """Call OpenRouter API directly (for other models)"""
+    """Call OpenRouter API directly (handles Grok and Perplexity citations)."""
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "HTTP-Referer": "http://localhost:3000",   # optional but recommended
+        "X-Title": "LLM Brand Experiment",
         "Content-Type": "application/json"
     }
+
+    # Strip "openrouter/" prefix if sent by frontend
+    if model.startswith("openrouter/"):
+        model = model.split("openrouter/")[-1]
+
     payload = {
         "model": model,
         "messages": [
-            {"role": "system", "content": "You are a helpful assistant that provides informative and referenced answers."},
+            {
+                "role": "system",
+                "content": "You are a helpful assistant that provides informative and referenced answers."
+            },
             {"role": "user", "content": query}
         ]
     }
 
-    # 🧠 Enable web search if requested
-    if model.startswith("openai/"):
-        payload["tools"] = [{"type": "web_search"}]
-    else:
-        payload["plugins"] = [{"id": "web", "max_results": int(5)}]
+    response = requests.post(
+        "https://openrouter.ai/api/v1/chat/completions",
+        headers=headers,
+        data=json.dumps(payload),
+        timeout=600
+    )
 
-    response = requests.post("https://openrouter.ai/api/v1/chat/completions", json=payload, headers=headers)
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        print("❌ OpenRouter request failed:", e)
+        print("Response text:", response.text)
+        raise
+
     data = response.json()
     text = data["choices"][0]["message"]["content"]
-    citations = data.get("references") or []
-    return text, citations, data
 
+    # --- ✅ Extract citations safely ---
+    citations = []
+
+    # Case 1: Perplexity models return `references` directly
+    if "references" in data:
+        for ref in data["references"]:
+            citations.append({
+                "title": ref.get("title", ""),
+                "url": ref.get("url", ""),
+                "content": ref.get("content", "")
+            })
+
+    # Case 2: xAI / Grok models put them under message.annotations
+    elif "annotations" in data["choices"][0]["message"]:
+        for ann in data["choices"][0]["message"]["annotations"]:
+            if ann.get("type") == "url_citation" and "url_citation" in ann:
+                uc = ann["url_citation"]
+                citations.append({
+                    "title": uc.get("title", ""),
+                    "url": uc.get("url", ""),
+                    "content": uc.get("content", "")
+                })
+
+    return text.strip(), citations, data
 
 # ==== API ENDPOINTS ====
 @app.get("/")
@@ -226,6 +370,8 @@ async def query_llm(request: QueryRequest):
             response_text, citations, raw = call_anthropic(model, request.query)
         elif request.model_provider == "openrouter":
             response_text, citations, raw = call_openrouter(model, request.query)
+        elif request.model_provider == "google":
+            response_text, citations, raw = call_gemini(model, request.query)
         else:
             raise HTTPException(status_code=400, detail="Invalid model provider")
 
