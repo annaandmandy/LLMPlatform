@@ -254,7 +254,6 @@ llm-frontend/
 ```bash
 MONGODB_URI=mongodb+srv
 MONGO_DB=llm_experiment
-LITELLM_MODEL=gpt-4o-mini
 OPENAI_API_KEY=sk-proj-xxxxx
 ```
 
@@ -408,55 +407,6 @@ cat data.json | jq '.data[] | select(.user_id == "specific-uuid")'
 ✅ **Efficient querying** with indexes
 
 ---
-
-## Testing Checklist
-
-- [ ] Backend starts without errors
-- [ ] Frontend builds successfully
-- [ ] MongoDB connection established
-- [ ] Query submission works
-- [ ] Response displays correctly
-- [ ] Links in response are clickable
-- [ ] Click events are logged
-- [ ] Scroll events are logged
-- [ ] User ID persists across sessions
-- [ ] Session ID resets on new session
-- [ ] Data export returns all records
-- [ ] Status endpoint shows healthy state
-
----
-
-## File Count
-
-**Backend:** 6 files (main.py, requirements.txt, Dockerfile, README.md, .env.example, .gitignore)
-**Frontend:** 15 files (app, components, lib, configs, docs)
-**Documentation:** 4 files (README.md, SETUP_GUIDE.md, PROJECT_SUMMARY.md, original specs)
-
-**Total:** 25+ files generated
-
----
-
-## Next Steps
-
-1. **Setup**: Follow [SETUP_GUIDE.md](SETUP_GUIDE.md)
-2. **Customize**: Modify prompts, styling, event types
-3. **Deploy**: Use Render (backend) + Vercel (frontend)
-4. **Analyze**: Export data and build analytics dashboard
-5. **Scale**: Add caching, rate limiting, monitoring
-
----
-
-## Support Resources
-
-- **Main Documentation**: [README.md](README.md)
-- **Setup Instructions**: [SETUP_GUIDE.md](SETUP_GUIDE.md)
-- **Backend Docs**: [fastapi-llm-logger/README.md](fastapi-llm-logger/README.md)
-- **Frontend Docs**: [llm-frontend/README.md](llm-frontend/README.md)
-- **Backend Spec**: [README_backend.md](README_backend.md)
-- **Frontend Spec**: [README_frontend.md](README_frontend.md)
-
----
-
 ## License
 
 MIT License - Free to use, modify, and distribute

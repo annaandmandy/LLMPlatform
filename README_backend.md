@@ -155,7 +155,6 @@ python-dotenv
 .env.example
 MONGODB_URI=mongodb+srv
 MONGO_DB=llm_experiment
-LITELLM_MODEL=gpt-4o-mini
 OPENAI_API_KEY=sk-xxxxxxx
 
 Dockerfile

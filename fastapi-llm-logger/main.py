@@ -82,50 +82,6 @@ class LogEventRequest(BaseModel):
 
 # ==== HELPER FUNCTIONS ====
 def call_openai(model: str, query: str):
-    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    """Call OpenAI Responses API safely with native web search."""
-    messages = [
-        {"role": "system", "content": (
-                "You are ChatGPT: a friendly, concise, markdown-savvy assistant. "
-                "Use conversational tone, structure answers with short paragraphs and lists when helpful. "
-                "Do not reveal chain-of-thought. Be helpful and practical.")},
-        {"role": "user", "content": query}
-    ]
-
-    response = client.responses.create(
-        model=model,
-        input=messages,
-        tools=[{"type": "web_search"}]
-    )
-
-    # --- Safe text extraction ---
-    text = ""
-    sources = []
-    if getattr(response, "output", None):
-        for item in response.output:
-            contents = getattr(item, "content", []) or []
-            for content in contents:
-                if getattr(content, "type", None) == "output_text":
-                    text += getattr(content, "text", "")
-                # --- Extract annotations (GPT-5 format) ---
-                annotations = getattr(content, "annotations", []) or []
-
-                for ann in annotations:
-                    # GPT-5 annotations are objects, not dicts
-                    ann_type = getattr(ann, "type", None) or (ann.get("type") if isinstance(ann, dict) else None)
-                    if ann_type == "url_citation":
-                        sources.append({
-                            "title": getattr(ann, "title", "") or (ann.get("title") if isinstance(ann, dict) else ""),
-                            "url": getattr(ann, "url", "") or (ann.get("url") if isinstance(ann, dict) else "")
-                        })
-
-    else:
-        text = getattr(response, "output_text", "") or ""
-
-    return text.strip(), sources, response.model_dump()
-
-
-def call_openai(model: str, query: str):
     from openai import OpenAI
     import os
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -148,7 +104,7 @@ def call_openai(model: str, query: str):
         text = msg.content or ""
         sources = []
 
-        # ✅ annotations live at message level
+        # annotations live at message level
         if hasattr(msg, "annotations"):
             for ann in msg.annotations:
                 ann_type = getattr(ann, "type", None)
@@ -181,7 +137,72 @@ def call_openai(model: str, query: str):
     return text.strip(), sources, getattr(response, "model_dump", lambda: response)()
 
 
+def call_anthropic(model: str, query: str):
+    """
+    Call Claude 3.5 with the new web_search_20250305 tool.
+    Handles Anthropic SDK's typed content blocks safely.
+    """
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
+    response = client.messages.create(
+        model=model,
+        max_tokens=1024,
+        tools=[{
+            "type": "web_search_20250305",
+            "name": "web_search",
+            "max_uses": 5
+        }],
+        messages=[{"role": "user", "content": query}]
+    )
+
+    text_parts = []
+    citations = []
+
+    # Safely iterate content blocks (these are typed SDK objects)
+    for block in getattr(response, "content", []):
+        # Unified way to get type
+        block_type = getattr(block, "type", None) or (block.get("type") if isinstance(block, dict) else None)
+
+        # ---- TEXT BLOCKS ----
+        if block_type == "text":
+            text_value = getattr(block, "text", "") or (block.get("text") if isinstance(block, dict) else "")
+            text_parts.append(text_value)
+
+            # ✅ Inline citations inside text blocks
+            block_citations = getattr(block, "citations", []) or (block.get("citations") if isinstance(block, dict) else [])
+            for cite in block_citations or []:
+                citations.append({
+                    "title": getattr(cite, "title", "") or (cite.get("title") if isinstance(cite, dict) else ""),
+                    "url": getattr(cite, "url", "") or (cite.get("url") if isinstance(cite, dict) else ""),
+                    "snippet": getattr(cite, "cited_text", "") or (cite.get("cited_text") if isinstance(cite, dict) else "")
+                })
+
+        # ---- WEB SEARCH RESULTS ----
+        elif block_type == "web_search_tool_result":
+            block_content = getattr(block, "content", []) or (block.get("content") if isinstance(block, dict) else [])
+            for result in block_content or []:
+                result_type = getattr(result, "type", None) or (result.get("type") if isinstance(result, dict) else None)
+                if result_type == "web_search_result":
+                    citations.append({
+                        "title": getattr(result, "title", "") or (result.get("title") if isinstance(result, dict) else ""),
+                        "url": getattr(result, "url", "") or (result.get("url") if isinstance(result, dict) else ""),
+                        "snippet": getattr(result, "page_age", "") or (result.get("page_age") if isinstance(result, dict) else "")
+                    })
+
+        # (optional) ignore ServerToolUseBlock, etc.
+        else:
+            continue
+
+    # remove duplicates by URL
+    seen, unique = set(), []
+    for c in citations:
+        url = c.get("url")
+        if url and url not in seen:
+            seen.add(url)
+            unique.append(c)
+
+    text = "\n".join(text_parts).strip()
+    return text, unique, response.model_dump()
 
 def call_gemini(model: str, query: str):
     """
