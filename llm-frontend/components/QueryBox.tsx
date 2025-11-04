@@ -69,7 +69,7 @@ export default function QueryBox({
       const backendUrl = (process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000").replace(/\/$/, "");
 
       // ✅ find provider based on selected model
-      const currentModel = AVAILABLE_MODELS.find((m) => m.id === selectedModel) || { id: "gpt-4o-mini:online", name: "GPT-4o Mini", provider: "openrouter" };
+      const currentModel = AVAILABLE_MODELS.find((m) => m.id === selectedModel) || { id: "gpt-4o-mini-search-preview", name: "GPT-4o Mini", provider: "openai" };
       const modelProvider = currentModel?.provider || "openrouter";
 
       const res = await fetch(`${backendUrl}/query`, {

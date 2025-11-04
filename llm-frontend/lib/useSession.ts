@@ -1,0 +1,129 @@
+import { useEffect, useState } from 'react';
+
+interface SessionOptions {
+  userId: string;
+  sessionId?: string;  // Optional: use existing session ID
+  modelGroup: string;
+  experimentId?: string;
+}
+
+/**
+ * Hook to manage user session lifecycle
+ * - Uses provided session ID or generates one
+ * - Captures environment details
+ * - Starts session on mount
+ * - Ends session on unmount
+ */
+export function useSession({ userId, sessionId: providedSessionId, modelGroup, experimentId = 'default' }: SessionOptions) {
+  const [sessionId, setSessionId] = useState<string>('');
+
+  useEffect(() => {
+    // Don't create session if we don't have real userId or sessionId yet
+    if (!userId || userId === 'anonymous' || !providedSessionId) {
+      return;
+    }
+
+    const newSessionId = providedSessionId;
+    setSessionId(newSessionId);
+
+    // Capture environment details
+    const environment = {
+      device: getDeviceType(),
+      browser: getBrowser(),
+      os: getOS(),
+      viewport: {
+        width: window.innerWidth,
+        height: window.innerHeight,
+      },
+      language: navigator.language || 'en',
+      connection: getConnectionType(),
+    };
+
+    // Initialize session (backend will check if it exists)
+    const initSession = async () => {
+      try {
+        const response = await fetch('/api/session/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            session_id: newSessionId,
+            user_id: userId,
+            experiment_id: experimentId,
+            environment,
+          }),
+        });
+
+        const data = await response.json();
+
+        if (data.existing) {
+          console.log('✅ Session already exists:', newSessionId);
+        } else {
+          console.log('✅ New session created:', newSessionId);
+        }
+      } catch (error) {
+        console.error('Failed to initialize session:', error);
+      }
+    };
+
+    initSession();
+
+    // End session on unmount or page unload
+    const endSession = () => {
+      // Use sendBeacon for reliable cleanup on page unload
+      const data = JSON.stringify({ session_id: newSessionId });
+      const blob = new Blob([data], { type: 'application/json' });
+      navigator.sendBeacon('/api/session/end', blob);
+    };
+
+    window.addEventListener('beforeunload', endSession);
+
+    return () => {
+      window.removeEventListener('beforeunload', endSession);
+      endSession();
+    };
+  }, [userId, providedSessionId, modelGroup, experimentId]);
+
+  return sessionId;
+}
+
+// Helper functions to detect environment details
+
+function getDeviceType(): string {
+  const ua = navigator.userAgent;
+  if (/(tablet|ipad|playbook|silk)|(android(?!.*mobi))/i.test(ua)) {
+    return 'tablet';
+  }
+  if (/Mobile|Android|iP(hone|od)|IEMobile|BlackBerry|Kindle|Silk-Accelerated|(hpw|web)OS|Opera M(obi|ini)/.test(ua)) {
+    return 'mobile';
+  }
+  return 'desktop';
+}
+
+function getBrowser(): string {
+  const ua = navigator.userAgent;
+  if (ua.includes('Firefox/')) return 'Firefox';
+  if (ua.includes('Edg/')) return 'Edge';
+  if (ua.includes('Chrome/')) return 'Chrome';
+  if (ua.includes('Safari/')) return 'Safari';
+  if (ua.includes('Opera/') || ua.includes('OPR/')) return 'Opera';
+  return 'Unknown';
+}
+
+function getOS(): string {
+  const ua = navigator.userAgent;
+  if (ua.includes('Win')) return 'Windows';
+  if (ua.includes('Mac')) return 'macOS';
+  if (ua.includes('X11') || ua.includes('Linux')) return 'Linux';
+  if (ua.includes('Android')) return 'Android';
+  if (ua.includes('iOS') || ua.includes('iPhone') || ua.includes('iPad')) return 'iOS';
+  return 'Unknown';
+}
+
+function getConnectionType(): string {
+  // @ts-ignore - navigator.connection is not standard but widely supported
+  const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  if (connection) {
+    return connection.effectiveType || 'unknown';
+  }
+  return 'unknown';
+}

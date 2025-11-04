@@ -48,6 +48,7 @@ try:
     db = mongo_client[MONGO_DB]
     queries_collection = db["queries"]
     events_collection = db["events"]
+    sessions_collection = db["sessions"]  # NEW: Session-based tracking
     logger.info("✅ Connected to MongoDB")
 except Exception as e:
     logger.error(f"❌ MongoDB connection failed: {e}")
@@ -78,6 +79,97 @@ class LogEventRequest(BaseModel):
     target_url: Optional[str] = None
     page_url: Optional[str] = None
     extra_data: Optional[Dict[str, Any]] = None
+
+
+# ==== NEW SESSION-BASED SCHEMAS ====
+class Environment(BaseModel):
+    device: str
+    browser: str
+    os: str
+    viewport: Dict[str, int]  # {"width": 1920, "height": 1080}
+    language: Optional[str] = "en"
+    connection: Optional[str] = None
+
+
+class EventData(BaseModel):
+    """Event-specific data fields"""
+    # Generic fields
+    text: Optional[str] = None
+    target: Optional[str] = None
+    target_url: Optional[str] = None  # URL for link clicks
+    x: Optional[float] = None
+    y: Optional[float] = None
+
+    # Scroll-specific
+    scrollY: Optional[float] = None
+    speed: Optional[float] = None
+    direction: Optional[str] = None  # "up" or "down"
+
+    # Model response fields
+    model: Optional[str] = None
+    provider: Optional[str] = None
+    latency_ms: Optional[float] = None
+    tokens: Optional[Dict[str, int]] = None  # {"prompt": 10, "completion": 50, "total": 60}
+    temperature: Optional[float] = None
+    top_p: Optional[float] = None
+    response_length: Optional[int] = None
+    response_id: Optional[str] = None
+    citations: Optional[List[Dict[str, Any]]] = None
+
+    # Feedback/error fields
+    feedback: Optional[str] = None  # "up", "down", "neutral"
+    error_code: Optional[str] = None
+    retry_model: Optional[str] = None
+
+    # Activity tracking
+    activity_state: Optional[str] = None  # "active" or "idle"
+    duration_ms: Optional[int] = None
+    visible_time_ms: Optional[float] = None
+    selected_text: Optional[str] = None
+
+    # Navigation/topic tracking
+    topic: Optional[str] = None
+    sentiment: Optional[str] = None
+    page_url: Optional[str] = None
+
+
+class Event(BaseModel):
+    """Individual event within a session"""
+    t: int  # timestamp in milliseconds since epoch
+    type: str  # "prompt", "model_response", "scroll", "click", "hover", "key", "navigate", "copy", "selection", "activity", "feedback", "error", "system"
+    data: EventData
+
+    class Config:
+        # Exclude null/None values when converting to dict
+        use_enum_values = True
+
+    def dict(self, **kwargs):
+        # Override dict method to exclude None values
+        kwargs['exclude_none'] = True
+        d = super().dict(**kwargs)
+        # Also clean the nested data dict
+        if 'data' in d and d['data']:
+            d['data'] = {k: v for k, v in d['data'].items() if v is not None}
+        return d
+
+
+class SessionStartRequest(BaseModel):
+    """Request to start a new session"""
+    session_id: str
+    user_id: str
+    experiment_id: Optional[str] = "default"
+    environment: Environment
+
+
+class SessionEventRequest(BaseModel):
+    """Request to add an event to a session"""
+    session_id: str
+    event: Event
+
+
+class SessionEndRequest(BaseModel):
+    """Request to end a session"""
+    session_id: str
 
 
 # ==== HELPER FUNCTIONS ====
@@ -134,7 +226,17 @@ def call_openai(model: str, query: str):
                             "url": getattr(ann, "url", "")
                         })
 
-    return text.strip(), sources, getattr(response, "model_dump", lambda: response)()
+    # Extract token usage
+    tokens = None
+    if hasattr(response, "usage"):
+        usage = response.usage
+        tokens = {
+            "prompt": getattr(usage, "prompt_tokens", 0),
+            "completion": getattr(usage, "completion_tokens", 0),
+            "total": getattr(usage, "total_tokens", 0)
+        }
+
+    return text.strip(), sources, getattr(response, "model_dump", lambda: response)(), tokens
 
 
 def call_anthropic(model: str, query: str):
@@ -201,8 +303,18 @@ def call_anthropic(model: str, query: str):
             seen.add(url)
             unique.append(c)
 
+    # Extract token usage
+    tokens = None
+    if hasattr(response, "usage"):
+        usage = response.usage
+        tokens = {
+            "prompt": getattr(usage, "input_tokens", 0),
+            "completion": getattr(usage, "output_tokens", 0),
+            "total": getattr(usage, "input_tokens", 0) + getattr(usage, "output_tokens", 0)
+        }
+
     text = "\n".join(text_parts).strip()
-    return text, unique, response.model_dump()
+    return text, unique, response.model_dump(), tokens
 
 def call_gemini(model: str, query: str):
     """
@@ -258,6 +370,16 @@ def call_gemini(model: str, query: str):
             seen.add(c["url"])
             unique.append(c)
 
+    # Extract token usage
+    tokens = None
+    if hasattr(response, "usage_metadata"):
+        usage = response.usage_metadata
+        tokens = {
+            "prompt": getattr(usage, "prompt_token_count", 0),
+            "completion": getattr(usage, "candidates_token_count", 0),
+            "total": getattr(usage, "total_token_count", 0)
+        }
+
     # ✅ Convert response to dict safely
     try:
         raw = response.as_dict()  # works in google-genai >= 0.2.0
@@ -276,7 +398,7 @@ def call_gemini(model: str, query: str):
             ]
         }
 
-    return text.strip(), unique, raw
+    return text.strip(), unique, raw, tokens
 
 
 def call_openrouter(model: str, query: str):
@@ -354,7 +476,17 @@ def call_openrouter(model: str, query: str):
                 "content": c.get("snippet", "")
             })
 
-    return text.strip(), citations, data
+    # Extract token usage
+    tokens = None
+    if "usage" in data:
+        usage = data["usage"]
+        tokens = {
+            "prompt": usage.get("prompt_tokens", 0),
+            "completion": usage.get("completion_tokens", 0),
+            "total": usage.get("total_tokens", 0)
+        }
+
+    return text.strip(), citations, data, tokens
 
 # ==== API ENDPOINTS ====
 @app.get("/")
@@ -383,21 +515,28 @@ async def query_llm(request: QueryRequest):
 
     logger.info(f"🔍 Processing query: {request.query} from user {request.user_id}")
 
+    start_time = datetime.utcnow()
+    start_time_ms = int(start_time.timestamp() * 1000)
+
     try:
         model = request.model_name
 
         if request.model_provider == "openai":
-            response_text, citations, raw = call_openai(model, request.query)
+            response_text, citations, raw, tokens = call_openai(model, request.query)
         elif request.model_provider == "anthropic":
-            response_text, citations, raw = call_anthropic(model, request.query)
+            response_text, citations, raw, tokens = call_anthropic(model, request.query)
         elif request.model_provider == "openrouter":
-            response_text, citations, raw = call_openrouter(model, request.query)
+            response_text, citations, raw, tokens = call_openrouter(model, request.query)
         elif request.model_provider == "google":
-            response_text, citations, raw = call_gemini(model, request.query)
+            response_text, citations, raw, tokens = call_gemini(model, request.query)
         else:
             raise HTTPException(status_code=400, detail="Invalid model provider")
 
-        # Log to MongoDB
+        end_time = datetime.utcnow()
+        end_time_ms = int(end_time.timestamp() * 1000)
+        latency_ms = (end_time - start_time).total_seconds() * 1000
+
+        # Log to MongoDB (LEGACY - keeping for backward compatibility)
         query_log = {
             "user_id": request.user_id,
             "session_id": request.session_id,
@@ -405,25 +544,94 @@ async def query_llm(request: QueryRequest):
             "response": response_text,
             "model_provider": request.model_provider,
             "model_used": model,
-            "timestamp": datetime.utcnow(),
+            "timestamp": start_time,
             "citations": citations,
             "raw": raw,
         }
         queries_collection.insert_one(query_log)
 
+        # NEW: Also log to sessions collection
+        # Log the prompt event
+        prompt_event = {
+            "t": start_time_ms,
+            "type": "prompt",
+            "data": {"text": request.query}
+        }
+
+        # Log the model response event
+        response_event_data = {
+            "text": response_text,
+            "model": model,
+            "provider": request.model_provider,
+            "latency_ms": latency_ms,
+            "response_length": len(response_text),
+            "citations": citations
+        }
+
+        # Add token usage if available
+        if tokens:
+            response_event_data["tokens"] = tokens
+
+        response_event = {
+            "t": end_time_ms,
+            "type": "model_response",
+            "data": response_event_data
+        }
+
+        # Add both events to session (if session exists)
+        result = sessions_collection.update_one(
+            {"session_id": request.session_id},
+            {"$push": {"events": {"$each": [prompt_event, response_event]}}}
+        )
+
+        if result.matched_count > 0:
+            logger.info(f"✅ Query logged to session {request.session_id}")
+        else:
+            logger.warning(f"⚠️ Session {request.session_id} not found, only logged to legacy collections")
+
         return {"response": response_text, "citations": citations}
 
     except requests.exceptions.RequestException as e:
         logger.error(f"API request failed: {e}")
+
+        # Log error event to session
+        error_event = {
+            "t": int(datetime.utcnow().timestamp() * 1000),
+            "type": "error",
+            "data": {
+                "error_code": str(e),
+                "text": f"API request failed: {str(e)}"
+            }
+        }
+        sessions_collection.update_one(
+            {"session_id": request.session_id},
+            {"$push": {"events": error_event}}
+        )
+
         raise HTTPException(status_code=500, detail=f"API request failed: {str(e)}")
     except Exception as e:
         logger.error(f"Error processing query: {e}")
+
+        # Log error event to session
+        error_event = {
+            "t": int(datetime.utcnow().timestamp() * 1000),
+            "type": "error",
+            "data": {
+                "error_code": str(e),
+                "text": f"Error: {str(e)}"
+            }
+        }
+        sessions_collection.update_one(
+            {"session_id": request.session_id},
+            {"$push": {"events": error_event}}
+        )
+
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
 
 @app.post("/log_event")
 async def log_event(request: LogEventRequest):
-    """Record user interaction events (clicks, browsing, conversions)"""
+    """Record user interaction events (clicks, browsing, conversions) - LEGACY"""
     if db is None:
         raise HTTPException(status_code=503, detail="Database not connected")
 
@@ -441,6 +649,96 @@ async def log_event(request: LogEventRequest):
     logger.info(f"📦 Event logged: {request.event_type} for user {request.user_id}")
 
     return {"status": "success", "message": "Event logged successfully"}
+
+
+# ==== SESSION-BASED ENDPOINTS ====
+@app.post("/session/start")
+async def start_session(request: SessionStartRequest):
+    """Initialize a new session with metadata and environment details (or return existing)"""
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+
+    # Check if session already exists
+    existing_session = sessions_collection.find_one({"session_id": request.session_id})
+
+    if existing_session:
+        # Session already exists, don't create duplicate
+        logger.info(f"♻️ Session already exists: {request.session_id}")
+        return {"status": "success", "session_id": request.session_id, "existing": True}
+
+    # Session doesn't exist, create new one
+    session_doc = {
+        "session_id": request.session_id,
+        "user_id": request.user_id,
+        "experiment_id": request.experiment_id,
+        "start_time": datetime.utcnow(),
+        "end_time": None,
+        "environment": request.environment.dict(),
+        "events": []
+    }
+
+    sessions_collection.insert_one(session_doc)
+    logger.info(f"🎬 Session started: {request.session_id} for user {request.user_id}")
+
+    return {"status": "success", "session_id": request.session_id, "existing": False}
+
+
+@app.post("/session/event")
+async def log_session_event(request: SessionEventRequest):
+    """Add an event to an existing session"""
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+
+    result = sessions_collection.update_one(
+        {"session_id": request.session_id},
+        {"$push": {"events": request.event.dict()}}
+    )
+
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    logger.info(f"📝 Event added to session {request.session_id}: {request.event.type}")
+
+    return {"status": "success"}
+
+
+@app.post("/session/end")
+async def end_session(request: SessionEndRequest):
+    """Mark a session as ended"""
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+
+    result = sessions_collection.update_one(
+        {"session_id": request.session_id},
+        {"$set": {"end_time": datetime.utcnow()}}
+    )
+
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    logger.info(f"🏁 Session ended: {request.session_id}")
+
+    return {"status": "success"}
+
+
+@app.get("/session/{session_id}")
+async def get_session(session_id: str):
+    """Retrieve a complete session with all events"""
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+
+    session = sessions_collection.find_one({"session_id": session_id}, {"_id": 0})
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Convert datetime objects to ISO format
+    if "start_time" in session and session["start_time"]:
+        session["start_time"] = session["start_time"].isoformat()
+    if "end_time" in session and session["end_time"]:
+        session["end_time"] = session["end_time"].isoformat()
+
+    return session
 
 
 @app.get("/export_data")

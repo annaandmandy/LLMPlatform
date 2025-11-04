@@ -7,6 +7,8 @@ import EventTracker from "@/components/EventTracker";
 import Sidebar from "@/components/Sidebar";
 import TermsModal from "@/components/TermsModal";
 import ClearUserModal from "@/components/ClearUserModal";
+import { useSession } from "@/lib/useSession";
+import { useEventTracking } from "@/lib/useEventTracking";
 
 interface Citation {
   title: string;
@@ -69,6 +71,23 @@ export default function Home() {
     // Try to load existing session
     loadSession(sId);
   }, []);
+
+  // NEW: Initialize session-based tracking (using the same sessionId as chat)
+  useSession({
+    userId: userId || "anonymous",
+    sessionId: sessionId,  // Use the same sessionId as chat
+    modelGroup: selectedModel,
+    experimentId: "production_v1",
+  });
+
+  // NEW: Initialize event tracking (using the same sessionId as chat)
+  useEventTracking({
+    sessionId: sessionId,  // Use the same sessionId as chat
+    trackScroll: true,
+    trackClicks: true,
+    trackSelection: true,
+    trackActivity: true,
+  });
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
