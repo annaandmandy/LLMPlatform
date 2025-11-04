@@ -32,6 +32,11 @@ export default function RootLayout({
               gtag('config', 'G-0SQLMR12QD');
             `}
           </Script>
+          <Script
+            id="contentsquare"
+            src="https://t.contentsquare.net/uxa/ae3be3e62b061.js"
+            strategy="afterInteractive"
+          />
           <Analytics />
           <SpeedInsights />
           {children}
