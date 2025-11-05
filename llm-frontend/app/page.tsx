@@ -85,8 +85,10 @@ export default function Home() {
     sessionId: sessionId,  // Use the same sessionId as chat
     trackScroll: true,
     trackClicks: true,
+    trackHover: true,
     trackSelection: true,
     trackActivity: true,
+    trackZoom: true,
   });
 
   // Auto-scroll to bottom when new messages arrive

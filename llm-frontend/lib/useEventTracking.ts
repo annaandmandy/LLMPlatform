@@ -25,8 +25,10 @@ interface EventTrackingOptions {
   trackHover?: boolean;
   trackSelection?: boolean;
   trackActivity?: boolean;
+  trackZoom?: boolean;
   scrollThrottle?: number; // ms between scroll events
   activityIdleTimeout?: number; // ms before considering user idle
+  hoverThrottle?: number; // ms between hover events
 }
 
 /**
@@ -42,8 +44,10 @@ export function useEventTracking({
   trackHover = false,
   trackSelection = true,
   trackActivity = true,
+  trackZoom = true,
   scrollThrottle = 500,
   activityIdleTimeout = 30000, // 30 seconds
+  hoverThrottle = 1000, // 1 second between hover events
 }: EventTrackingOptions) {
   const lastScrollY = useRef(typeof window !== 'undefined' ? window.scrollY : 0);
   const lastScrollTime = useRef(Date.now());
@@ -52,6 +56,9 @@ export function useEventTracking({
   const isIdle = useRef(false);
   const lastSelection = useRef<string>('');
   const selectionTimeout = useRef<NodeJS.Timeout>();
+  const hoverTimeout = useRef<NodeJS.Timeout>();
+  const lastHoveredElement = useRef<string>('');
+  const lastZoomLevel = useRef(typeof window !== 'undefined' ? window.visualViewport?.scale || 1 : 1);
 
   /**
    * Generic event logging function
@@ -158,7 +165,7 @@ export function useEventTracking({
       logEvent('click', eventData);
     };
 
-    // Track hover (mouseover on interactive elements)
+    // Track hover (mouseover on interactive elements) with throttling
     const handleHover = (e: MouseEvent) => {
       if (!trackHover) return;
 
@@ -169,13 +176,32 @@ export function useEventTracking({
         target.tagName === 'A' ||
         target.tagName === 'BUTTON' ||
         target.onclick ||
-        target.role === 'button'
+        target.role === 'button' ||
+        target.classList.contains('citation') ||
+        target.closest('a, button')
       ) {
-        logEvent('hover', {
-          target: target.tagName,
-          x: e.clientX,
-          y: e.clientY,
-        });
+        const elementIdentifier = `${target.tagName}:${target.textContent?.trim().substring(0, 50) || ''}`;
+
+        // Throttle hover events - only log if it's a different element or enough time has passed
+        if (lastHoveredElement.current !== elementIdentifier) {
+          lastHoveredElement.current = elementIdentifier;
+
+          // Clear existing timeout
+          if (hoverTimeout.current) {
+            clearTimeout(hoverTimeout.current);
+          }
+
+          hoverTimeout.current = setTimeout(() => {
+            const linkElement = target.closest('a');
+            logEvent('hover', {
+              target: target.tagName,
+              text: target.textContent?.trim().substring(0, 100) || undefined,
+              target_url: linkElement ? linkElement.href : undefined,
+              x: e.clientX,
+              y: e.clientY,
+            });
+          }, hoverThrottle);
+        }
       }
     };
 
@@ -244,6 +270,28 @@ export function useEventTracking({
       }
     };
 
+    // Track zoom/pinch events
+    const handleZoom = () => {
+      if (!trackZoom) return;
+      if (typeof window === 'undefined' || !window.visualViewport) return;
+
+      const currentZoom = window.visualViewport.scale;
+
+      // Only log if zoom level changed significantly (more than 0.05 difference)
+      if (Math.abs(currentZoom - lastZoomLevel.current) > 0.05) {
+        markActive();
+
+        logEvent('zoom', {
+          zoom_level: currentZoom,
+          previous_zoom: lastZoomLevel.current,
+          viewport_width: window.visualViewport.width,
+          viewport_height: window.visualViewport.height,
+        });
+
+        lastZoomLevel.current = currentZoom;
+      }
+    };
+
     // Add event listeners
     if (trackScroll) {
       window.addEventListener('scroll', handleScroll, { passive: true });
@@ -257,6 +305,9 @@ export function useEventTracking({
     if (trackSelection) {
       document.addEventListener('selectionchange', handleSelection);
     }
+    if (trackZoom && typeof window !== 'undefined' && window.visualViewport) {
+      window.visualViewport.addEventListener('resize', handleZoom);
+    }
     document.addEventListener('copy', handleCopy);
     window.addEventListener('popstate', handleNavigation);
     document.addEventListener('keydown', handleKeyPress);
@@ -267,6 +318,9 @@ export function useEventTracking({
       window.removeEventListener('click', handleClick);
       window.removeEventListener('mouseover', handleHover);
       document.removeEventListener('selectionchange', handleSelection);
+      if (typeof window !== 'undefined' && window.visualViewport) {
+        window.visualViewport.removeEventListener('resize', handleZoom);
+      }
       document.removeEventListener('copy', handleCopy);
       window.removeEventListener('popstate', handleNavigation);
       document.removeEventListener('keydown', handleKeyPress);
@@ -280,8 +334,11 @@ export function useEventTracking({
       if (selectionTimeout.current) {
         clearTimeout(selectionTimeout.current);
       }
+      if (hoverTimeout.current) {
+        clearTimeout(hoverTimeout.current);
+      }
     };
-  }, [sessionId, trackScroll, trackClicks, trackHover, trackSelection, trackActivity, logEvent, markActive, scrollThrottle]);
+  }, [sessionId, trackScroll, trackClicks, trackHover, trackSelection, trackActivity, trackZoom, logEvent, markActive, scrollThrottle, hoverThrottle]);
 
   return { logEvent };
 }
