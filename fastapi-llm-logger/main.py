@@ -547,6 +547,7 @@ async def query_llm(request: QueryRequest):
             "timestamp": start_time,
             "citations": citations,
             "raw": raw,
+            "tokens": tokens,
         }
         queries_collection.insert_one(query_log)
 
@@ -571,6 +572,7 @@ async def query_llm(request: QueryRequest):
         # Add token usage if available
         if tokens:
             response_event_data["tokens"] = tokens
+
 
         response_event = {
             "t": end_time_ms,
