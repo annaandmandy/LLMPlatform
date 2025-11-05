@@ -77,12 +77,13 @@ export default function TokensPage() {
   const fetchData = async () => {
     try {
       setLoading(true);
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
       const params = new URLSearchParams();
       if (selectedProvider) params.append("model_provider", selectedProvider);
       if (selectedModel) params.append("model_used", selectedModel);
 
       const response = await fetch(
-        `http://localhost:8000/tokens/data?${params.toString()}`
+        `${backendUrl}/tokens/data?${params.toString()}`
       );
       const result = await response.json();
       setData(result);
