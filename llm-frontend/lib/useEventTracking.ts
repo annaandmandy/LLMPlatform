@@ -141,6 +141,11 @@ export function useEventTracking({
       markActive();
 
       const target = e.target as HTMLElement;
+
+      // Capture text content BEFORE any DOM updates (during capture phase)
+      // This ensures we get the original text before state changes
+      const originalText = target.textContent?.trim() || undefined;
+
       const eventData: EventData = {
         target: target.tagName,
         x: e.clientX,
@@ -156,7 +161,7 @@ export function useEventTracking({
 
       // If clicking on a button with data attributes or specific info
       if (target.tagName === 'BUTTON') {
-        eventData.text = target.textContent?.trim() || undefined;
+        eventData.text = originalText;
       }
 
       logEvent('click', eventData);
@@ -288,7 +293,8 @@ export function useEventTracking({
       window.addEventListener('scroll', handleScroll, { passive: true });
     }
     if (trackClicks) {
-      window.addEventListener('click', handleClick);
+      // Use capture phase to get original text before React updates
+      window.addEventListener('click', handleClick, true);
     }
     if (trackHover) {
       window.addEventListener('mouseover', handleHover, { passive: true });
@@ -306,7 +312,7 @@ export function useEventTracking({
     // Cleanup
     return () => {
       window.removeEventListener('scroll', handleScroll);
-      window.removeEventListener('click', handleClick);
+      window.removeEventListener('click', handleClick, true);
       window.removeEventListener('mouseover', handleHover);
       document.removeEventListener('selectionchange', handleSelection);
       if (typeof window !== 'undefined' && window.visualViewport) {
