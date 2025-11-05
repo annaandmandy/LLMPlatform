@@ -28,7 +28,6 @@ interface EventTrackingOptions {
   trackZoom?: boolean;
   scrollThrottle?: number; // ms between scroll events
   activityIdleTimeout?: number; // ms before considering user idle
-  hoverThrottle?: number; // ms between hover events
 }
 
 /**
@@ -47,7 +46,6 @@ export function useEventTracking({
   trackZoom = true,
   scrollThrottle = 500,
   activityIdleTimeout = 30000, // 30 seconds
-  hoverThrottle = 1000, // 1 second between hover events
 }: EventTrackingOptions) {
   const lastScrollY = useRef(typeof window !== 'undefined' ? window.scrollY : 0);
   const lastScrollTime = useRef(Date.now());
@@ -56,7 +54,6 @@ export function useEventTracking({
   const isIdle = useRef(false);
   const lastSelection = useRef<string>('');
   const selectionTimeout = useRef<NodeJS.Timeout>();
-  const hoverTimeout = useRef<NodeJS.Timeout>();
   const lastHoveredElement = useRef<string>('');
   const lastZoomLevel = useRef(typeof window !== 'undefined' ? window.visualViewport?.scale || 1 : 1);
 
@@ -182,25 +179,19 @@ export function useEventTracking({
       ) {
         const elementIdentifier = `${target.tagName}:${target.textContent?.trim().substring(0, 50) || ''}`;
 
-        // Throttle hover events - only log if it's a different element or enough time has passed
+        // Only log if it's a different element (throttle by element, not time)
         if (lastHoveredElement.current !== elementIdentifier) {
           lastHoveredElement.current = elementIdentifier;
 
-          // Clear existing timeout
-          if (hoverTimeout.current) {
-            clearTimeout(hoverTimeout.current);
-          }
-
-          hoverTimeout.current = setTimeout(() => {
-            const linkElement = target.closest('a');
-            logEvent('hover', {
-              target: target.tagName,
-              text: target.textContent?.trim().substring(0, 100) || undefined,
-              target_url: linkElement ? linkElement.href : undefined,
-              x: e.clientX,
-              y: e.clientY,
-            });
-          }, hoverThrottle);
+          // Log immediately (no timeout delay)
+          const linkElement = target.closest('a');
+          logEvent('hover', {
+            target: target.tagName,
+            text: target.textContent?.trim().substring(0, 100) || undefined,
+            target_url: linkElement ? linkElement.href : undefined,
+            x: e.clientX,
+            y: e.clientY,
+          });
         }
       }
     };
@@ -334,11 +325,8 @@ export function useEventTracking({
       if (selectionTimeout.current) {
         clearTimeout(selectionTimeout.current);
       }
-      if (hoverTimeout.current) {
-        clearTimeout(hoverTimeout.current);
-      }
     };
-  }, [sessionId, trackScroll, trackClicks, trackHover, trackSelection, trackActivity, trackZoom, logEvent, markActive, scrollThrottle, hoverThrottle]);
+  }, [sessionId, trackScroll, trackClicks, trackHover, trackSelection, trackActivity, trackZoom, logEvent, markActive, scrollThrottle]);
 
   return { logEvent };
 }
