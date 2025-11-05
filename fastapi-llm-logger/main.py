@@ -548,6 +548,7 @@ async def query_llm(request: QueryRequest):
             "citations": citations,
             "raw": raw,
             "tokens": tokens,
+            "latency_ms": latency_ms,
         }
         queries_collection.insert_one(query_log)
 
@@ -769,6 +770,110 @@ async def export_data():
         "queries_count": len(queries),
         "events_count": len(events),
         "data": all_data,
+    }
+
+
+@app.get("/tokens/data")
+async def get_tokens_data(model_provider: Optional[str] = None, model_used: Optional[str] = None):
+    """Get token usage data with optional filters"""
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+
+    # Build filter query
+    filter_query = {"tokens": {"$exists": True, "$ne": None}}
+
+    if model_provider:
+        filter_query["model_provider"] = model_provider
+
+    if model_used:
+        filter_query["model_used"] = model_used
+
+    # Get queries with token data
+    queries = list(queries_collection.find(filter_query, {
+        "_id": 0,
+        "model_provider": 1,
+        "model_used": 1,
+        "tokens": 1,
+        "timestamp": 1,
+        "latency_ms": 1
+    }))
+
+    # Convert timestamps to ISO format
+    for q in queries:
+        if "timestamp" in q and q["timestamp"]:
+            q["timestamp"] = q["timestamp"].isoformat()
+
+    # Get unique providers and models for filter options
+    all_providers = list(queries_collection.distinct("model_provider", {"tokens": {"$exists": True}}))
+    all_models = list(queries_collection.distinct("model_used", {"tokens": {"$exists": True}}))
+
+    # Calculate aggregated statistics
+    total_prompt_tokens = 0
+    total_completion_tokens = 0
+    total_tokens = 0
+    model_usage_count = {}
+    provider_stats = {}
+    model_stats = {}
+    model_latency_stats = {}
+
+    for q in queries:
+        tokens = q.get("tokens", {})
+        prompt = tokens.get("prompt", 0)
+        completion = tokens.get("completion", 0)
+        total = tokens.get("total", 0)
+
+        total_prompt_tokens += prompt
+        total_completion_tokens += completion
+        total_tokens += total
+
+        # Count model usage
+        model = q.get("model_used", "unknown")
+        model_usage_count[model] = model_usage_count.get(model, 0) + 1
+
+        # Provider stats
+        provider = q.get("model_provider", "unknown")
+        if provider not in provider_stats:
+            provider_stats[provider] = {"prompt": 0, "completion": 0, "total": 0}
+        provider_stats[provider]["prompt"] += prompt
+        provider_stats[provider]["completion"] += completion
+        provider_stats[provider]["total"] += total
+
+        # Model stats
+        if model not in model_stats:
+            model_stats[model] = {"prompt": 0, "completion": 0, "total": 0}
+        model_stats[model]["prompt"] += prompt
+        model_stats[model]["completion"] += completion
+        model_stats[model]["total"] += total
+
+        # Latency stats (if available)
+        latency = q.get("latency_ms")
+        if latency is not None:
+            if model not in model_latency_stats:
+                model_latency_stats[model] = {"total_latency": 0, "count": 0}
+            model_latency_stats[model]["total_latency"] += latency
+            model_latency_stats[model]["count"] += 1
+
+    # Calculate average latency per model
+    model_avg_latency = {}
+    for model, stats in model_latency_stats.items():
+        if stats["count"] > 0:
+            model_avg_latency[model] = stats["total_latency"] / stats["count"]
+
+    return {
+        "queries": queries,
+        "filters": {
+            "providers": all_providers,
+            "models": all_models
+        },
+        "aggregated": {
+            "total_prompt_tokens": total_prompt_tokens,
+            "total_completion_tokens": total_completion_tokens,
+            "total_tokens": total_tokens,
+            "model_usage_count": model_usage_count,
+            "provider_stats": provider_stats,
+            "model_stats": model_stats,
+            "model_avg_latency": model_avg_latency
+        }
     }
 
 
