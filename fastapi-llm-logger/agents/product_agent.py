@@ -48,8 +48,9 @@ class ProductAgent(BaseAgent):
         self.product_indicators = [
             r'\b(buy|purchase|get|order)\s+(?:a|an|the|some)?\s*([A-Z][a-zA-Z\s&-]+)',
             r'\b(recommend|suggests?|try)\s+(?:the|a|an)?\s*([A-Z][a-zA-Z\s&-]+)',
-            r'\b([A-Z][a-zA-Z]+)\s+(headphones|speaker|mat|lamp|filter|tracker|watch|chair|laptop|phone|tablet|camera|tv)',
-            r'\b(Apple|Sony|Samsung|Fitbit|Bose|Nike|Adidas|Dell|HP|Canon|Nikon|LG|Brita|Ninja)\s+([A-Z][a-zA-Z0-9\s]+)',
+            r'\b([A-Z][a-zA-Z]+)\s+(headphones|speaker|mat|lamp|filter|tracker|watch|chair|laptop|phone|tablet|camera|tv|earplugs|earbuds)',
+            r'\b(Apple|Sony|Samsung|Fitbit|Bose|Nike|Adidas|Dell|HP|Canon|Nikon|LG|Brita|Ninja|Loop|Mack|Flents|Ohropax|Howard)\s+([A-Z][a-zA-Z0-9\s\'-]+)',
+            r'\b([A-Z][a-zA-Z\'-]+\s+)+Earplugs?\b',  # Matches "Loop Quiet Earplugs", "Mack's Ultra Soft Foam Earplugs"
         ]
 
     async def execute(self, request: Dict[str, Any]) -> Dict[str, Any]:
@@ -171,7 +172,7 @@ class ProductAgent(BaseAgent):
 
             logger.info(f"Searching Google Shopping for: {product_name}")
 
-            res = requests.get(url, params=params, timeout=5)
+            res = requests.get(url, params=params, timeout=10)
             data = res.json()
 
             products = []

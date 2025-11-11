@@ -9,6 +9,7 @@ from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
 from datetime import datetime
 import logging
+import asyncio
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -71,7 +72,7 @@ class BaseAgent(ABC):
             latency_ms = (end_time - start_time).total_seconds() * 1000
 
             # Log to agent_logs collection if db is available
-            if self.db:
+            if self.db is not None:
                 await self._log_execution(
                     request=request,
                     output=output,
@@ -98,7 +99,7 @@ class BaseAgent(ABC):
             logger.error(f"{self.name} failed: {str(e)}")
 
             # Log error to agent_logs
-            if self.db:
+            if self.db is not None:
                 await self._log_execution(
                     request=request,
                     output={"error": str(e)},
@@ -137,7 +138,8 @@ class BaseAgent(ABC):
                 "execution_count": self.execution_count
             }
 
-            await self.db.agent_logs.insert_one(log_entry)
+            # MongoDB driver is synchronous; run insert in separate thread to avoid blocking loop
+            await asyncio.to_thread(self.db.agent_logs.insert_one, log_entry)
 
         except Exception as e:
             logger.warning(f"Failed to log execution: {str(e)}")

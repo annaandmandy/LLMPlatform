@@ -10,6 +10,7 @@ Handles conversation memory through:
 from typing import Dict, Any, List, Optional
 import logging
 from datetime import datetime
+import asyncio
 from .base_agent import BaseAgent
 from utils.embeddings import get_embedding, find_most_similar
 
@@ -78,7 +79,10 @@ class MemoryAgent(BaseAgent):
 
         try:
             # Get session messages from sessions collection
-            session = await self.db.sessions.find_one({"session_id": session_id})
+            session = await asyncio.to_thread(
+                self.db.sessions.find_one,
+                {"session_id": session_id}
+            )
 
             if not session:
                 return {"summary": "No conversation history found"}
@@ -146,8 +150,8 @@ class MemoryAgent(BaseAgent):
                 {"$limit": 100}  # Limit search space for performance
             ]
 
-            vectors_cursor = self.db.vectors.find({"session_id": session_id}).limit(100)
-            vectors = await vectors_cursor.to_list(length=100)
+            cursor = self.db.vectors.find({"session_id": session_id}).limit(100)
+            vectors = await asyncio.to_thread(list, cursor)
 
             if len(vectors) == 0:
                 return {"context": [], "message": "No past context available"}
@@ -209,7 +213,7 @@ class MemoryAgent(BaseAgent):
                 "timestamp": datetime.now()
             }
 
-            await self.db.vectors.insert_one(vector_doc)
+            await asyncio.to_thread(self.db.vectors.insert_one, vector_doc)
             logger.info(f"Stored embedding for {role} message (session: {session_id})")
 
         except Exception as e:
@@ -226,7 +230,10 @@ class MemoryAgent(BaseAgent):
         """
         try:
             # Check if summary document exists
-            summary_doc = await self.db.summaries.find_one({"session_id": session_id})
+            summary_doc = await asyncio.to_thread(
+                self.db.summaries.find_one,
+                {"session_id": session_id}
+            )
 
             summary_entry = {
                 "t": datetime.now(),
@@ -236,17 +243,21 @@ class MemoryAgent(BaseAgent):
 
             if summary_doc:
                 # Append to existing summaries
-                await self.db.summaries.update_one(
+                await asyncio.to_thread(
+                    self.db.summaries.update_one,
                     {"session_id": session_id},
                     {"$push": {"summaries": summary_entry}}
                 )
             else:
                 # Create new summary document
-                await self.db.summaries.insert_one({
-                    "session_id": session_id,
-                    "summaries": [summary_entry],
-                    "created_at": datetime.now()
-                })
+                await asyncio.to_thread(
+                    self.db.summaries.insert_one,
+                    {
+                        "session_id": session_id,
+                        "summaries": [summary_entry],
+                        "created_at": datetime.now()
+                    }
+                )
 
             logger.info(f"Stored summary for session {session_id}")
 

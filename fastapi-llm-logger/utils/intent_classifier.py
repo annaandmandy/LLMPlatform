@@ -30,7 +30,10 @@ class IntentClassifier:
         r'\b(product|item|goods|merchandise)\b',
         r'\b(store|seller|vendor|market|amazon|ebay)\b',
         r'\b(find|search|looking for|need|want).*(product|item)\b',
-        r'\b(show|display|list).*(product|item|price)\b'
+        r'\b(show|display|list).*(product|item|price)\b',
+        r'\b(recommend|suggest|best|good|top).*(for|to)\b',
+        r'\b(what|which).*(good|best|recommend|suggest)\b',
+        r'\b(headphones|laptop|phone|shoes|tablet|camera|speaker|watch|chair|mat|filter|tracker|earplugs)\b'
     ]
 
     SUMMARIZE_KEYWORDS = [

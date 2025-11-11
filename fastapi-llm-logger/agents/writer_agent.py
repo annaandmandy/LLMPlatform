@@ -106,6 +106,7 @@ class WriterAgent(BaseAgent):
                 "citations": citations,
                 "tokens": tokens,
                 "model_used": model,
+                "raw_response": raw_response,
                 "provider": provider
             }
 
@@ -116,6 +117,7 @@ class WriterAgent(BaseAgent):
                 "citations": [],
                 "tokens": None,
                 "model_used": model,
+                "raw_response": None,
                 "error": str(e)
             }
 

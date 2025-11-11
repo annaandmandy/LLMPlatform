@@ -89,6 +89,9 @@ class CoordinatorAgent(BaseAgent):
         memory_context = None
         product_cards = None
         agents_used = [self.name]
+        collected_citations: Optional[list] = None
+        collected_tokens: Optional[Dict[str, Any]] = None
+        raw_response: Optional[Dict[str, Any]] = None
 
         # Step 2: Route based on intent
         if intent == "product_search":
@@ -105,7 +108,11 @@ class CoordinatorAgent(BaseAgent):
                 "memory_context": None
             }
             writer_result = await self.writer_agent.run(writer_request)
-            final_response = writer_result["output"]["response"]
+            writer_output = writer_result["output"]
+            final_response = writer_output["response"]
+            collected_citations = writer_output.get("citations")
+            collected_tokens = writer_output.get("tokens")
+            raw_response = writer_output.get("raw_response")
 
             # Extract product mentions from the LLM response and search for them
             product_result = await self.product_agent.run({
@@ -143,7 +150,11 @@ class CoordinatorAgent(BaseAgent):
                 "product_cards": None
             }
             writer_result = await self.writer_agent.run(writer_request)
-            final_response = writer_result["output"]["response"]
+            writer_output = writer_result["output"]
+            final_response = writer_output["response"]
+            collected_citations = writer_output.get("citations")
+            collected_tokens = writer_output.get("tokens")
+            raw_response = writer_output.get("raw_response")
 
         else:  # general intent
             # General flow: WriterAgent only (may use conversation history)
@@ -156,7 +167,11 @@ class CoordinatorAgent(BaseAgent):
                 "product_cards": None
             }
             writer_result = await self.writer_agent.run(writer_request)
-            final_response = writer_result["output"]["response"]
+            writer_output = writer_result["output"]
+            final_response = writer_output["response"]
+            collected_citations = writer_output.get("citations")
+            collected_tokens = writer_output.get("tokens")
+            raw_response = writer_output.get("raw_response")
 
         # Step 3: Return combined result
         result = {
@@ -172,6 +187,15 @@ class CoordinatorAgent(BaseAgent):
 
         if memory_context:
             result["memory_context"] = memory_context
+
+        if collected_citations:
+            result["citations"] = collected_citations
+
+        if collected_tokens:
+            result["tokens"] = collected_tokens
+
+        if raw_response:
+            result["raw_response"] = raw_response
 
         logger.info(f"Request processed. Agents used: {', '.join(agents_used)}")
 

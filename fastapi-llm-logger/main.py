@@ -619,6 +619,7 @@ async def query_llm(request: QueryRequest):
             response_text = agent_output["response"]
             citations = agent_output.get("citations", [])
             tokens = agent_output.get("tokens")
+            raw = agent_output.get("raw_response", {})
             intent_info = {
                 "intent": agent_output.get("intent"),
                 "confidence": agent_output.get("intent_confidence"),
@@ -648,7 +649,8 @@ async def query_llm(request: QueryRequest):
                 except Exception as e:
                     logger.warning(f"Failed to store embeddings: {e}")
 
-            raw = {}  # Multi-agent raw response placeholder
+            if not raw:
+                raw = {}
 
         else:
             # Fallback to direct LLM call
