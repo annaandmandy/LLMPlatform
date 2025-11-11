@@ -33,7 +33,7 @@ export default function ProductCard({
       href={url}
       target="_blank"
       rel="noopener noreferrer"
-      className="block bg-white border border-gray-200 rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200 overflow-hidden group"
+      className="block bg-white border border-gray-200 rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200 overflow-hidden group flex-shrink-0 w-64"
     >
       <div className="flex gap-3 p-3">
         {/* Product Image */}

@@ -215,10 +215,12 @@ export default function MessageHistory({
                     <span>🛍️</span>
                     <span>Related Products</span>
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {message.product_cards.map((product, idx) => (
-                      <ProductCard key={idx} {...product} />
-                    ))}
+                  <div className="overflow-x-auto">
+                    <div className="flex gap-3 pb-2">
+                      {message.product_cards.map((product, idx) => (
+                        <ProductCard key={idx} {...product} />
+                      ))}
+                    </div>
                   </div>
                 </div>
               )}

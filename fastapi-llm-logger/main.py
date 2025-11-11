@@ -193,7 +193,9 @@ class SessionEndRequest(BaseModel):
 
 # ==== MULTI-AGENT SYSTEM INITIALIZATION ====
 from agents import CoordinatorAgent, MemoryAgent, ProductAgent, WriterAgent
+from agents.writer_agent import DEFAULT_SYSTEM_PROMPT
 from utils.embeddings import preload_model
+from utils.intent_classifier import detect_intent
 
 # Initialize agents
 coordinator_agent = None
@@ -240,16 +242,15 @@ def initialize_agents():
 
 
 # ==== HELPER FUNCTIONS ====
-def call_openai(model: str, query: str):
+def call_openai(model: str, query: str, system_prompt: str | None = None):
     from openai import OpenAI
     import os
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
+    system_message = system_prompt or DEFAULT_SYSTEM_PROMPT
+
     messages = [
-        {"role": "system", "content": (
-            "You are ChatGPT: a concise, markdown-savvy assistant. "
-            "Use short paragraphs and lists when helpful. Provide citations if possible."
-        )},
+        {"role": "system", "content": system_message},
         {"role": "user", "content": query}
     ]
 
@@ -306,12 +307,14 @@ def call_openai(model: str, query: str):
     return text.strip(), sources, getattr(response, "model_dump", lambda: response)(), tokens
 
 
-def call_anthropic(model: str, query: str):
+def call_anthropic(model: str, query: str, system_prompt: str | None = None):
     """
     Call Claude 3.5 with the new web_search_20250305 tool.
     Handles Anthropic SDK's typed content blocks safely.
     """
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+    system_message = system_prompt or DEFAULT_SYSTEM_PROMPT
 
     response = client.messages.create(
         model=model,
@@ -321,6 +324,7 @@ def call_anthropic(model: str, query: str):
             "name": "web_search",
             "max_uses": 5
         }],
+        system=system_message,
         messages=[{"role": "user", "content": query}]
     )
 
@@ -383,7 +387,7 @@ def call_anthropic(model: str, query: str):
     text = "\n".join(text_parts).strip()
     return text, unique, response.model_dump(), tokens
 
-def call_gemini(model: str, query: str):
+def call_gemini(model: str, query: str, system_prompt: str | None = None):
     """
     Call Google Gemini (2.x / 1.5) API with web grounding enabled.
     Handles typed SDK objects and converts response safely to dict.
@@ -395,9 +399,13 @@ def call_gemini(model: str, query: str):
     config = types.GenerateContentConfig(tools=[grounding_tool])
 
     # Generate content
+    system_message = system_prompt or DEFAULT_SYSTEM_PROMPT
+
     response = client.models.generate_content(
         model=model,
-        contents=query,
+        contents=[
+            {"role": "user", "parts": [{"text": f"{system_message}\n\n{query}"}]}
+        ],
         config=config,
     )
 
@@ -468,7 +476,7 @@ def call_gemini(model: str, query: str):
     return text.strip(), unique, raw, tokens
 
 
-def call_openrouter(model: str, query: str):
+def call_openrouter(model: str, query: str, system_prompt: str | None = None):
     """Call OpenRouter API directly (handles Grok and Perplexity citations)."""
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -486,7 +494,7 @@ def call_openrouter(model: str, query: str):
         "messages": [
             {
                 "role": "system",
-                "content": "You are a helpful assistant that provides informative and referenced answers."
+                "content": system_prompt or DEFAULT_SYSTEM_PROMPT
             },
             {"role": "user", "content": query}
         ]
@@ -597,6 +605,7 @@ async def query_llm(request: QueryRequest):
     try:
         model = request.model_name
         product_cards = None
+        product_structured = None
         intent_info = None
 
         # Try using multi-agent system first
@@ -628,6 +637,7 @@ async def query_llm(request: QueryRequest):
 
             # Extract product cards if present
             product_cards = agent_output.get("product_cards")
+            product_structured = agent_output.get("product_json")
 
             # Store embeddings for RAG (async, don't wait)
             if memory_agent:
@@ -656,14 +666,18 @@ async def query_llm(request: QueryRequest):
             # Fallback to direct LLM call
             logger.info("⚠️ Multi-agent system unavailable, using direct LLM call")
 
+            intent_result = await detect_intent(request.query, use_llm=False)
+            system_prompt = DEFAULT_SYSTEM_PROMPT
+            intent_info = intent_result
+
             if request.model_provider == "openai":
-                response_text, citations, raw, tokens = call_openai(model, request.query)
+                response_text, citations, raw, tokens = call_openai(model, request.query, system_prompt=system_prompt)
             elif request.model_provider == "anthropic":
-                response_text, citations, raw, tokens = call_anthropic(model, request.query)
+                response_text, citations, raw, tokens = call_anthropic(model, request.query, system_prompt=system_prompt)
             elif request.model_provider == "openrouter":
-                response_text, citations, raw, tokens = call_openrouter(model, request.query)
+                response_text, citations, raw, tokens = call_openrouter(model, request.query, system_prompt=system_prompt)
             elif request.model_provider == "google":
-                response_text, citations, raw, tokens = call_gemini(model, request.query)
+                response_text, citations, raw, tokens = call_gemini(model, request.query, system_prompt=system_prompt)
             else:
                 raise HTTPException(status_code=400, detail="Invalid model provider")
 
@@ -695,6 +709,9 @@ async def query_llm(request: QueryRequest):
         if product_cards:
             query_log["product_cards"] = product_cards
 
+        if product_structured:
+            query_log["product_structured"] = product_structured
+
         queries_collection.insert_one(query_log)
 
         # NEW: Also log to sessions collection
@@ -718,6 +735,9 @@ async def query_llm(request: QueryRequest):
         # Add token usage if available
         if tokens:
             response_event_data["tokens"] = tokens
+
+        if product_structured:
+            response_event_data["products"] = product_structured
 
 
         response_event = {
@@ -745,6 +765,9 @@ async def query_llm(request: QueryRequest):
 
         if product_cards:
             response_data["product_cards"] = product_cards
+
+        if product_structured:
+            response_data["product_json"] = product_structured
 
         if intent_info:
             response_data["intent"] = intent_info.get("intent")

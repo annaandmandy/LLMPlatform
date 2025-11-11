@@ -14,6 +14,11 @@ from .base_agent import BaseAgent
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_SYSTEM_PROMPT = (
+    "You are ChatGPT: a concise, markdown-savvy assistant. "
+    "Use short paragraphs and lists when helpful. Provide citations if possible."
+)
+
 
 class WriterAgent(BaseAgent):
     """
@@ -97,7 +102,11 @@ class WriterAgent(BaseAgent):
                 raise ValueError(f"No LLM function configured for provider: {provider}")
 
             # Call the LLM
-            response_text, citations, raw_response, tokens = llm_function(model, enriched_prompt)
+            response_text, citations, raw_response, tokens = llm_function(
+                model,
+                enriched_prompt,
+                system_prompt=DEFAULT_SYSTEM_PROMPT
+            )
 
             logger.info(f"Response generated: {len(response_text)} chars, {len(citations)} citations")
 

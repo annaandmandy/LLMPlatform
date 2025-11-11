@@ -11,17 +11,28 @@ Flow:
 4. Return product cards with real URLs users can click
 """
 
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import logging
 import re
 import os
+import json
+import asyncio
 import requests
+from openai import OpenAI
 from .base_agent import BaseAgent
 
 logger = logging.getLogger(__name__)
 
 # SerpAPI configuration
 SERPAPI_KEY = os.getenv("SERPAPI_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+PRODUCT_EXTRACTION_MODEL = os.getenv("PRODUCT_EXTRACTION_MODEL", "gpt-4o-mini")
+EXTRACTION_SYSTEM_PROMPT = (
+    "You read a passage and list up to 5 concrete consumer products or brand models mentioned. "
+    "Return JSON: {\"products\": [\"name1\", \"name2\"]}. "
+    "Ignore URLs, publishers, articles, or generic categories."
+)
+EXTRACTION_USER_TEMPLATE = "Passage:\n\"\"\"{text}\"\"\"\nReturn only JSON."
 
 
 class ProductAgent(BaseAgent):
@@ -43,6 +54,7 @@ class ProductAgent(BaseAgent):
             db: MongoDB database instance (optional, for caching)
         """
         super().__init__(name="ProductAgent", db=db)
+        self._openai_client: Optional[OpenAI] = None
 
         # Common product keywords that indicate a product mention
         self.product_indicators = [
@@ -71,13 +83,14 @@ class ProductAgent(BaseAgent):
         query = request.get("query", "")
         llm_response = request.get("llm_response", "")
         max_results = request.get("max_results", 3)
-
-        logger.info(f"Extracting product mentions from response")
+        logger.info("Extracting product mentions from response")
 
         try:
-            # Extract product mentions from LLM response or query
             text_to_analyze = llm_response if llm_response else query
-            product_mentions = self._extract_product_mentions(text_to_analyze)
+            product_mentions = await self._extract_products_with_llm(text_to_analyze)
+
+            if not product_mentions:
+                product_mentions = self._extract_product_mentions(text_to_analyze)
 
             if not product_mentions:
                 logger.info("No product mentions found")
@@ -101,7 +114,7 @@ class ProductAgent(BaseAgent):
 
             return {
                 "products": all_products,
-                "extracted_mentions": product_mentions
+                "extracted_mentions": product_mentions,
             }
 
         except Exception as e:
@@ -134,7 +147,7 @@ class ProductAgent(BaseAgent):
                 else:
                     product_name = match.strip()
 
-                if product_name and len(product_name) > 3:
+                if self._is_probable_product_name(product_name):
                     mentions.append(product_name)
 
         # Remove duplicates while preserving order
@@ -202,3 +215,67 @@ class ProductAgent(BaseAgent):
         except Exception as e:
             logger.error(f"Error searching for product '{product_name}': {str(e)}")
             return []
+
+    async def _extract_products_with_llm(self, text: str) -> List[str]:
+        if not text or not OPENAI_API_KEY:
+            return []
+
+        try:
+            client = self._get_openai_client()
+            safe_text = text.replace("{", "{{").replace("}", "}}")
+            response = await asyncio.to_thread(
+                client.chat.completions.create,
+                model=PRODUCT_EXTRACTION_MODEL,
+                messages=[
+                    {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
+                    {"role": "user", "content": EXTRACTION_USER_TEMPLATE.format(text=safe_text.strip())},
+                ],
+                response_format={"type": "json_object"},
+                max_tokens=300,
+            )
+
+            content = ""
+            if response.choices:
+                content = response.choices[0].message.content or ""
+            if not content:
+                return []
+
+            data = json.loads(content)
+            products = data.get("products", [])
+            cleaned = [
+                p.strip() for p in products
+                if isinstance(p, str) and self._is_probable_product_name(p)
+            ]
+            return cleaned[:5]
+        except Exception as e:
+            logger.warning(f"LLM-based product extraction failed: {e}")
+            return []
+
+    def _get_openai_client(self) -> OpenAI:
+        if self._openai_client is None:
+            self._openai_client = OpenAI(api_key=OPENAI_API_KEY)
+        return self._openai_client
+
+    def _is_probable_product_name(self, name: str) -> bool:
+        if not name:
+            return False
+        candidate = name.strip()
+        if len(candidate) < 3:
+            return False
+        lowered = candidate.lower()
+        if lowered.startswith("http") or "://" in lowered:
+            return False
+        if re.search(r"\b(blog|news|review|magazine|daily)\b", lowered):
+            return False
+        if "." in candidate and " " not in candidate:
+            return False
+        return True
+
+    def _normalize_url(self, url: Optional[str]) -> str:
+        if not url:
+            return ""
+        if url.startswith("http://") or url.startswith("https://"):
+            return url
+        if "." in url:
+            return f"https://{url.strip()}"
+        return url.strip()

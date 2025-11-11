@@ -79,7 +79,7 @@ class CoordinatorAgent(BaseAgent):
         logger.info(f"Processing query: {query[:100]}...")
 
         # Step 1: Detect intent
-        intent_result = detect_intent(query)
+        intent_result = await detect_intent(query, use_llm=False)
         intent = intent_result["intent"]
         confidence = intent_result["confidence"]
 
@@ -88,6 +88,7 @@ class CoordinatorAgent(BaseAgent):
         # Initialize context collectors
         memory_context = None
         product_cards = None
+        structured_products = None
         agents_used = [self.name]
         collected_citations: Optional[list] = None
         collected_tokens: Optional[Dict[str, Any]] = None
@@ -95,12 +96,10 @@ class CoordinatorAgent(BaseAgent):
 
         # Step 2: Route based on intent
         if intent == "product_search":
-            # Product search flow: WriterAgent -> ProductAgent
-            # 1. Generate response first
-            # 2. Then extract product mentions and search for them
+            # Product search flow: leverage ProductAgent dual-output prompt for structured data
             agents_used.extend(["WriterAgent", "ProductAgent"])
 
-            # Generate response with WriterAgent first
+            # Generate general response context (fallback) with WriterAgent
             writer_request = {
                 **request,
                 "intent": intent,
@@ -114,12 +113,16 @@ class CoordinatorAgent(BaseAgent):
             collected_tokens = writer_output.get("tokens")
             raw_response = writer_output.get("raw_response")
 
-            # Extract product mentions from the LLM response and search for them
+            # Run ProductAgent to get markdown + structured JSON
             product_result = await self.product_agent.run({
                 **request,
+                "intent": intent,
                 "llm_response": final_response
             })
-            product_cards = product_result["output"].get("products", [])
+            product_output = product_result["output"]
+            product_cards = product_output.get("products", [])
+            structured_products = product_output.get("structured_products")
+
 
         elif intent == "summarize":
             # Summarization flow: MemoryAgent (summarize mode)
@@ -184,6 +187,9 @@ class CoordinatorAgent(BaseAgent):
         # Add optional fields if present
         if product_cards:
             result["product_cards"] = product_cards
+
+        if structured_products:
+            result["product_json"] = structured_products
 
         if memory_context:
             result["memory_context"] = memory_context

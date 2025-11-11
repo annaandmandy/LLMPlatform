@@ -3,14 +3,21 @@ Intent Classification Utility
 
 Detects user intent from query text using a hybrid approach:
 1. Keyword-based rules (fast, deterministic)
-2. Optional LLM-based classification (more accurate, slower)
+2. LLM-based classification (more accurate, slower)
 """
 
 import re
 from typing import Dict, Any, Optional
 import logging
+import os
+import requests
+import json
+import asyncio
 
 logger = logging.getLogger(__name__)
+
+# OpenRouter configuration
+OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY")
 
 
 class IntentClassifier:
@@ -24,38 +31,27 @@ class IntentClassifier:
     - general: General conversation
     """
 
-    # Keyword patterns for each intent
-    PRODUCT_KEYWORDS = [
-        r'\b(buy|purchase|shop|price|cost|cheap|expensive|sale|discount)\b',
-        r'\b(product|item|goods|merchandise)\b',
-        r'\b(store|seller|vendor|market|amazon|ebay)\b',
-        r'\b(find|search|looking for|need|want).*(product|item)\b',
-        r'\b(show|display|list).*(product|item|price)\b',
-        r'\b(recommend|suggest|best|good|top).*(for|to)\b',
-        r'\b(what|which).*(good|best|recommend|suggest)\b',
-        r'\b(headphones|laptop|phone|shoes|tablet|camera|speaker|watch|chair|mat|filter|tracker|earplugs)\b'
-    ]
+    def __init__(self, keyword_file: str = "intent_keywords.json"):
+        """Initialize the intent classifier and compile patterns."""
+        # get absolute path of this script’s directory
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        self.keyword_file = os.path.join(base_dir, keyword_file)
 
-    SUMMARIZE_KEYWORDS = [
-        r'\b(summarize|summary|recap)\b',
-        r'\b(what (did|have) (we|i)).*discuss\b',
-        r'\b(overview|digest|brief)\b',
-        r'\btell me (what|about).*(said|discussed|talked)\b'
-    ]
+        if not os.path.exists(self.keyword_file):
+            raise FileNotFoundError(f"Keyword file not found: {self.keyword_file}")
 
-    MEMORY_KEYWORDS = [
-        r'\b(remember|recall|mentioned|said)\b',
-        r'\b(earlier|before|previously|past)\b',
-        r'\b(history|conversation|chat).*(show|display|retrieve)\b',
-        r'\b(what (did|have)).*(say|tell|mention)\b',
-        r'\bdo you (remember|recall)\b'
-    ]
+        with open(self.keyword_file, "r", encoding="utf-8") as f:
+            keyword_data = json.load(f)
 
-    def __init__(self):
-        """Initialize the intent classifier."""
-        self.product_patterns = [re.compile(p, re.IGNORECASE) for p in self.PRODUCT_KEYWORDS]
-        self.summarize_patterns = [re.compile(p, re.IGNORECASE) for p in self.SUMMARIZE_KEYWORDS]
-        self.memory_patterns = [re.compile(p, re.IGNORECASE) for p in self.MEMORY_KEYWORDS]
+        # compile patterns
+        self.product_patterns = [re.compile(p, re.IGNORECASE)
+                                for p in keyword_data["product_search"]["patterns"]]
+        self.summarize_patterns = [re.compile(p, re.IGNORECASE)
+                                for p in keyword_data["summarize"]["patterns"]]
+        self.memory_patterns = [re.compile(p, re.IGNORECASE)
+                                for p in keyword_data["retrieve_memory"]["patterns"]]
+
+        logger.info(f"✅ IntentClassifier initialized from {self.keyword_file}")
 
     def classify(self, query: str, use_llm: bool = False) -> Dict[str, Any]:
         """
@@ -124,43 +120,124 @@ class IntentClassifier:
                 matches += 1
         return matches
 
-    async def classify_with_llm(self, query: str, llm_client) -> Dict[str, Any]:
+    async def classify_with_llm(self, query: str) -> Dict[str, Any]:
         """
         Use LLM to classify intent (more accurate but slower).
 
         Args:
             query: User query text
-            llm_client: LLM client instance
 
         Returns:
             Dictionary with intent and confidence
-
-        Note: This is a placeholder for future LLM-based classification
         """
-        # TODO: Implement LLM-based classification for better accuracy
-        # This would call a small, fast model like gpt-4o-mini with a classification prompt
-        pass
+        if not OPENROUTER_KEY:
+            logger.warning("OPENROUTER_API_KEY not configured, falling back to keyword-based classification")
+            return self.classify(query, use_llm=False)
+
+        try:
+            headers = {
+                "Authorization": f"Bearer {OPENROUTER_KEY}",
+                "Content-Type": "application/json",
+            }
+
+            payload = {
+                "model": "microsoft/phi-3-mini-128k-instruct",
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are an intent classification system. Classify user queries into one of these intents:\n\n"
+                            "1. product_search: User wants to find, buy, compare, or get recommendations for products/items\n"
+                            "   Examples: \"top 3 chocolate bars\", \"best headphones\", \"I need running shoes\", \"recommend a laptop\"\n\n"
+                            "2. summarize: User requests a summary of the conversation\n"
+                            "   Examples: \"summarize our chat\", \"recap what we discussed\", \"give me a summary\"\n\n"
+                            "3. retrieve_memory: User references past conversations or asks about previous topics\n"
+                            "   Examples: \"what did we discuss earlier?\", \"remember what I said about?\", \"you mentioned before\"\n\n"
+                            "4. general: General questions, factual inquiries, chitchat, or explanations (NOT product-related)\n"
+                            "   Examples: \"tell me about machine learning\", \"how does photosynthesis work?\", \"hello\"\n\n"
+                            "IMPORTANT: If the query mentions specific products, rankings (\"top 3\", \"best\"), or requests recommendations, classify as product_search.\n\n"
+                            "Respond ONLY with valid JSON:\n"
+                            '{"intent": "product_search", "confidence": 0.95, "reasoning": "brief explanation"}'
+                        )
+                    },
+                    {"role": "user", "content": query}
+                ],
+                "response_format": {"type": "json_object"},
+            }
+
+            response = await asyncio.to_thread(
+                requests.post,
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=5
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                content = data["choices"][0]["message"]["content"]
+
+                # Parse JSON response
+                result = json.loads(content)
+
+                intent = result.get("intent", "general")
+                confidence = result.get("confidence", 0.5)
+                reasoning = result.get("reasoning", "")
+
+                # Validate intent
+                valid_intents = ["product_search", "summarize", "retrieve_memory", "general"]
+                if intent not in valid_intents:
+                    logger.warning(f"Invalid intent '{intent}' from LLM, defaulting to 'general'")
+                    intent = "general"
+
+                logger.info(f"LLM classified as '{intent}' (confidence: {confidence:.2f}) - {reasoning}")
+
+                return {
+                    "intent": intent,
+                    "confidence": float(confidence),
+                    "matched_patterns": 0,
+                    "reasoning": reasoning,
+                    "method": "llm"
+                }
+            else:
+                logger.error(f"OpenRouter API error: {response.status_code}")
+                # Fallback to keyword-based
+                return self.classify(query, use_llm=False)
+
+        except Exception as e:
+            logger.error(f"Error in LLM classification: {str(e)}")
+            # Fallback to keyword-based
+            return self.classify(query, use_llm=False)
 
 
 # Global classifier instance
 _classifier = IntentClassifier()
 
 
-def detect_intent(query: str, use_llm: bool = False) -> Dict[str, Any]:
+USE_LLM_INTENT = os.getenv("USE_LLM_INTENT", "false").lower() in {"true", "1", "yes"}
+
+
+async def detect_intent(query: str, use_llm: Optional[bool] = None) -> Dict[str, Any]:
     """
     Detect the intent of a user query.
 
     Args:
         query: User query text
-        use_llm: Whether to use LLM for classification
+        use_llm: Whether to use LLM for classification (default: env USE_LLM_INTENT)
 
     Returns:
         Dictionary containing intent, confidence, and matched_patterns
 
     Example:
-        >>> detect_intent("I want to buy a laptop")
-        {'intent': 'product_search', 'confidence': 0.65, 'matched_patterns': 1}
+        >>> await detect_intent("I want to buy a laptop")
+        {'intent': 'product_search', 'confidence': 0.95, 'reasoning': 'User wants product recommendations'}
     """
-    result = _classifier.classify(query, use_llm=use_llm)
+    should_use_llm = USE_LLM_INTENT if use_llm is None else use_llm
+
+    if should_use_llm:
+        result = await _classifier.classify_with_llm(query)
+    else:
+        result = _classifier.classify(query, use_llm=False)
+
     logger.info(f"Intent detected: {result['intent']} (confidence: {result['confidence']:.2f})")
     return result

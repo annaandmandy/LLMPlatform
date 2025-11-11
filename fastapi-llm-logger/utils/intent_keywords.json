@@ -1,0 +1,39 @@
+{
+  "product_search": {
+    "patterns": [
+      "\\b(buy|purchase|order|shop|price|cost|cheap|expensive|sale|discount|deal|promo|coupon)\\b",
+      "\\b(find|get|looking for|need|want|search for|where can i buy)\\b",
+      "\\b(product|item|goods|brand|model|version|series|collection)\\b",
+      "\\b(store|shop|market|mall|vendor|seller|amazon|ebay|walmart|costco|target|aliexpress|shopify)\\b",
+      "\\b(best|good|top|popular|recommended|trending|new|latest|hot)\\b",
+      "\\b(top\\s*\\d+|top\\s+(three|five|ten))\\b",
+      "\\b(compare|versus|vs|alternative|option|replacement)\\b",
+      "\\b(recommend|suggest|worth buying|is it worth)\\b",
+      "\\b(food|snack|drink|beverage|coffee|tea|chocolate|bar|cookie|candy|soda|juice|protein|supplement|vitamin|powder|pill)\\b",
+      "\\b(skin|face|cream|lotion|serum|cleanser|mask|shampoo|conditioner|sunscreen|soap|perfume|lipstick|makeup|cosmetic)\\b",
+      "\\b(electronic|device|headphones|earbuds|airpods|laptop|phone|tablet|pc|camera|speaker|tv|charger|monitor|keyboard|mouse|router|console)\\b",
+      "\\b(furniture|chair|desk|table|sofa|bed|mattress|lamp|light|shelf|cabinet|vacuum|filter|humidifier|air purifier|fan)\\b",
+      "\\b(clothing|shoes|bag|shirt|jacket|jeans|dress|skirt|hat|belt|watch|accessory|brand)\\b",
+      "\\b(fitness|gym|yoga|mat|dumbbell|equipment|tracker|smartwatch)\\b",
+      "\\b(pet|dog|cat|toy|food|treat|leash|bed|bowl)\\b"
+    ]
+  },
+
+  "summarize": {
+    "patterns": [
+      "\\b(summarize|summary|recap|wrap up|sum up|overview|digest|brief|recap of)\\b",
+      "\\b(what (did|have) (we|i)).*(discuss|talk|cover)\\b",
+      "\\btell me (what|about).*(said|discussed|talked)\\b"
+    ]
+  },
+
+  "retrieve_memory": {
+    "patterns": [
+      "\\b(remember|recall|mentioned|said|remind me)\\b",
+      "\\b(earlier|before|previously|past|last time)\\b",
+      "\\b(history|conversation|chat|log).*(show|display|retrieve|open|load)\\b",
+      "\\b(what (did|have)).*(say|tell|mention)\\b",
+      "\\bdo you (remember|recall|know)\\b"
+    ]
+  }
+}
