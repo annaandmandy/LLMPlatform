@@ -9,12 +9,13 @@ This backend handles:
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 import os
 import json
 import logging
+import warnings
 from dotenv import load_dotenv
 from pymongo import MongoClient
 import requests
@@ -27,6 +28,13 @@ from google.genai import types
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Suppress noisy pydantic warnings from third-party Operation models
+warnings.filterwarnings(
+    "ignore",
+    message=r'Field name "(name|metadata|done|error)" shadows an attribute in parent "Operation"',
+    category=UserWarning,
+)
 
 # ==== FASTAPI APP ====
 app = FastAPI(title="LLM Interaction Logger", version="2.0.0")
@@ -75,12 +83,16 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 GOOGLE_API_KEY=os.getenv("GOOGLE_API_KEY")
 
 # ==== REQUEST SCHEMAS ====
-class MessageHistory(BaseModel):
+class AppBaseModel(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+
+class MessageHistory(AppBaseModel):
     """Message in conversation history"""
     role: str  # "user" or "assistant"
     content: str
 
-class QueryRequest(BaseModel):
+class QueryRequest(AppBaseModel):
     user_id: str
     session_id: str
     query: str
@@ -90,7 +102,7 @@ class QueryRequest(BaseModel):
     history: Optional[List[MessageHistory]] = []  # NEW: Conversation history for multi-agent context
 
 
-class LogEventRequest(BaseModel):
+class LogEventRequest(AppBaseModel):
     user_id: str
     session_id: str
     event_type: str
@@ -101,7 +113,7 @@ class LogEventRequest(BaseModel):
 
 
 # ==== NEW SESSION-BASED SCHEMAS ====
-class Environment(BaseModel):
+class Environment(AppBaseModel):
     device: str
     browser: str
     os: str
@@ -110,7 +122,7 @@ class Environment(BaseModel):
     connection: Optional[str] = None
 
 
-class EventData(BaseModel):
+class EventData(AppBaseModel):
     """Event-specific data fields"""
     # Generic fields
     text: Optional[str] = None
@@ -152,7 +164,7 @@ class EventData(BaseModel):
     page_url: Optional[str] = None
 
 
-class Event(BaseModel):
+class Event(AppBaseModel):
     """Individual event within a session"""
     t: int  # timestamp in milliseconds since epoch
     type: str  # "prompt", "model_response", "scroll", "click", "hover", "key", "navigate", "copy", "selection", "activity", "feedback", "error", "system"
@@ -172,7 +184,7 @@ class Event(BaseModel):
         return d
 
 
-class SessionStartRequest(BaseModel):
+class SessionStartRequest(AppBaseModel):
     """Request to start a new session"""
     session_id: str
     user_id: str
@@ -180,13 +192,13 @@ class SessionStartRequest(BaseModel):
     environment: Environment
 
 
-class SessionEventRequest(BaseModel):
+class SessionEventRequest(AppBaseModel):
     """Request to add an event to a session"""
     session_id: str
     event: Event
 
 
-class SessionEndRequest(BaseModel):
+class SessionEndRequest(AppBaseModel):
     """Request to end a session"""
     session_id: str
 
