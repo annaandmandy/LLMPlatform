@@ -172,33 +172,25 @@ export function useEventTracking({
       if (!trackHover) return;
 
       const target = e.target as HTMLElement;
+      const trackedElement = target.closest<HTMLElement>('[data-hover-id]') || target.closest('a, button');
 
-      // Only track hover on interactive elements
-      if (
-        target.tagName === 'A' ||
-        target.tagName === 'BUTTON' ||
-        target.onclick ||
-        target.role === 'button' ||
-        target.classList.contains('citation') ||
-        target.closest('a, button')
-      ) {
-        const elementIdentifier = `${target.tagName}:${target.textContent?.trim().substring(0, 50) || ''}`;
+      if (!trackedElement) return;
 
-        // Only log if it's a different element (throttle by element, not time)
-        if (lastHoveredElement.current !== elementIdentifier) {
-          lastHoveredElement.current = elementIdentifier;
+      const hoverId =
+        trackedElement.getAttribute('data-hover-id') ||
+        `${trackedElement.tagName}:${trackedElement.textContent?.trim().substring(0, 50) || ''}`;
 
-          // Log immediately (no timeout delay)
-          const linkElement = target.closest('a');
-          logEvent('hover', {
-            target: target.tagName,
-            text: target.textContent?.trim().substring(0, 100) || undefined,
-            target_url: linkElement ? linkElement.href : undefined,
-            x: e.clientX,
-            y: e.clientY,
-          });
-        }
-      }
+      if (lastHoveredElement.current === hoverId) return;
+      lastHoveredElement.current = hoverId;
+
+      const linkElement = trackedElement.closest('a');
+      logEvent('hover', {
+        target: trackedElement.tagName,
+        text: trackedElement.textContent?.trim().substring(0, 100) || undefined,
+        target_url: linkElement ? linkElement.href : undefined,
+        x: e.clientX,
+        y: e.clientY,
+      });
     };
 
     // Track text selection (debounced to only capture final selection)
