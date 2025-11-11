@@ -3,10 +3,24 @@
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import ProductCard from "./ProductCard";
 
 interface Citation {
   title: string;
   url: string;
+}
+
+interface ProductCardData {
+  title: string;
+  description?: string;
+  price?: string;
+  rating?: number;
+  reviews_count?: number;
+  image?: string;
+  url: string;
+  seller?: string;
+  tag?: string;
+  delivery?: string;
 }
 
 interface Message {
@@ -14,6 +28,7 @@ interface Message {
   content: string;
   timestamp: Date;
   citations?: Citation[];
+  product_cards?: ProductCardData[];
 }
 
 interface MessageHistoryProps {
@@ -190,9 +205,25 @@ export default function MessageHistory({
                 {message.timestamp.toLocaleTimeString()}
               </div>
             </div>
+
+            {/* Product Cards - Show for each message that has them */}
+            {message.role === "assistant" && message.product_cards && message.product_cards.length > 0 && (
+              <div className="mt-3 max-w-[80%]">
+                <div className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+                  <span>🛍️</span>
+                  <span>Related Products</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {message.product_cards.map((product, idx) => (
+                    <ProductCard key={idx} {...product} />
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         );
       })}
+
       <div ref={messagesEndRef} />
     </div>
   );

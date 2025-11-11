@@ -1,0 +1,178 @@
+"""
+Coordinator Agent
+
+Routes incoming requests to appropriate specialized agents based on intent detection.
+This is the entry point for the multi-agent system.
+"""
+
+from typing import Dict, Any, Optional
+import logging
+from .base_agent import BaseAgent
+from utils.intent_classifier import detect_intent
+
+logger = logging.getLogger(__name__)
+
+
+class CoordinatorAgent(BaseAgent):
+    """
+    Coordinates task routing to specialized agents.
+
+    The Coordinator:
+    1. Analyzes the user query to detect intent
+    2. Routes to appropriate agent(s)
+    3. Collects and combines results
+    4. Returns final response with metadata
+    """
+
+    def __init__(self, db=None):
+        """
+        Initialize the CoordinatorAgent.
+
+        Args:
+            db: MongoDB database instance
+        """
+        super().__init__(name="CoordinatorAgent", db=db)
+        self.memory_agent = None
+        self.product_agent = None
+        self.writer_agent = None
+
+    def set_agents(self, memory_agent, product_agent, writer_agent):
+        """
+        Set references to specialized agents.
+
+        Args:
+            memory_agent: MemoryAgent instance
+            product_agent: ProductAgent instance
+            writer_agent: WriterAgent instance
+        """
+        self.memory_agent = memory_agent
+        self.product_agent = product_agent
+        self.writer_agent = writer_agent
+        logger.info(f"{self.name} agents configured")
+
+    async def execute(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Route request to appropriate agents based on intent.
+
+        Args:
+            request: Dictionary containing:
+                - query: User query string
+                - session_id: Session identifier
+                - user_id: User identifier
+                - history: Optional conversation history
+                - model: Preferred model for LLM calls
+
+        Returns:
+            Dictionary containing:
+                - response: Final response text
+                - intent: Detected intent
+                - product_cards: Optional product cards
+                - memory_context: Optional retrieved context
+                - agents_used: List of agents that processed the request
+        """
+        query = request.get("query", "")
+        session_id = request.get("session_id")
+        user_id = request.get("user_id")
+        history = request.get("history", [])
+        model = request.get("model", "gpt-4o-mini-search-preview")
+
+        logger.info(f"Processing query: {query[:100]}...")
+
+        # Step 1: Detect intent
+        intent_result = detect_intent(query)
+        intent = intent_result["intent"]
+        confidence = intent_result["confidence"]
+
+        logger.info(f"Intent detected: {intent} (confidence: {confidence:.2f})")
+
+        # Initialize context collectors
+        memory_context = None
+        product_cards = None
+        agents_used = [self.name]
+
+        # Step 2: Route based on intent
+        if intent == "product_search":
+            # Product search flow: WriterAgent -> ProductAgent
+            # 1. Generate response first
+            # 2. Then extract product mentions and search for them
+            agents_used.extend(["WriterAgent", "ProductAgent"])
+
+            # Generate response with WriterAgent first
+            writer_request = {
+                **request,
+                "intent": intent,
+                "product_cards": None,
+                "memory_context": None
+            }
+            writer_result = await self.writer_agent.run(writer_request)
+            final_response = writer_result["output"]["response"]
+
+            # Extract product mentions from the LLM response and search for them
+            product_result = await self.product_agent.run({
+                **request,
+                "llm_response": final_response
+            })
+            product_cards = product_result["output"].get("products", [])
+
+        elif intent == "summarize":
+            # Summarization flow: MemoryAgent (summarize mode)
+            agents_used.append("MemoryAgent")
+
+            memory_result = await self.memory_agent.run({
+                **request,
+                "action": "summarize"
+            })
+            final_response = memory_result["output"]["summary"]
+
+        elif intent == "retrieve_memory":
+            # Memory retrieval flow: MemoryAgent -> WriterAgent
+            agents_used.extend(["MemoryAgent", "WriterAgent"])
+
+            # Retrieve relevant context
+            memory_result = await self.memory_agent.run({
+                **request,
+                "action": "retrieve"
+            })
+            memory_context = memory_result["output"].get("context", [])
+
+            # Generate response with context
+            writer_request = {
+                **request,
+                "intent": intent,
+                "memory_context": memory_context,
+                "product_cards": None
+            }
+            writer_result = await self.writer_agent.run(writer_request)
+            final_response = writer_result["output"]["response"]
+
+        else:  # general intent
+            # General flow: WriterAgent only (may use conversation history)
+            agents_used.append("WriterAgent")
+
+            writer_request = {
+                **request,
+                "intent": intent,
+                "memory_context": None,
+                "product_cards": None
+            }
+            writer_result = await self.writer_agent.run(writer_request)
+            final_response = writer_result["output"]["response"]
+
+        # Step 3: Return combined result
+        result = {
+            "response": final_response,
+            "intent": intent,
+            "intent_confidence": confidence,
+            "agents_used": agents_used
+        }
+
+        # Add optional fields if present
+        if product_cards:
+            result["product_cards"] = product_cards
+
+        if memory_context:
+            result["memory_context"] = memory_context
+
+        logger.info(f"Request processed. Agents used: {', '.join(agents_used)}")
+
+        return result

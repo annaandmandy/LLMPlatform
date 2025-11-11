@@ -39,6 +39,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Startup event to initialize multi-agent system
+@app.on_event("startup")
+async def startup_event():
+    """Initialize multi-agent system on startup"""
+    initialize_agents()
+
 # ==== MONGODB CONFIG ====
 MONGODB_URI = os.getenv("MONGODB_URI")
 MONGO_DB = os.getenv("MONGO_DB", "llm_experiment")
@@ -49,6 +55,13 @@ try:
     queries_collection = db["queries"]
     events_collection = db["events"]
     sessions_collection = db["sessions"]  # NEW: Session-based tracking
+
+    # NEW: Multi-agent collections
+    summaries_collection = db["summaries"]
+    vectors_collection = db["vectors"]
+    products_collection = db["products"]
+    agent_logs_collection = db["agent_logs"]
+
     logger.info("✅ Connected to MongoDB")
 except Exception as e:
     logger.error(f"❌ MongoDB connection failed: {e}")
@@ -62,6 +75,11 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 GOOGLE_API_KEY=os.getenv("GOOGLE_API_KEY")
 
 # ==== REQUEST SCHEMAS ====
+class MessageHistory(BaseModel):
+    """Message in conversation history"""
+    role: str  # "user" or "assistant"
+    content: str
+
 class QueryRequest(BaseModel):
     user_id: str
     session_id: str
@@ -69,6 +87,7 @@ class QueryRequest(BaseModel):
     model_provider: str  # "openai", "anthropic", or "openrouter"
     model_name: Optional[str] = None
     web_search: Optional[bool] = False
+    history: Optional[List[MessageHistory]] = []  # NEW: Conversation history for multi-agent context
 
 
 class LogEventRequest(BaseModel):
@@ -170,6 +189,54 @@ class SessionEventRequest(BaseModel):
 class SessionEndRequest(BaseModel):
     """Request to end a session"""
     session_id: str
+
+
+# ==== MULTI-AGENT SYSTEM INITIALIZATION ====
+from agents import CoordinatorAgent, MemoryAgent, ProductAgent, WriterAgent
+from utils.embeddings import preload_model
+
+# Initialize agents
+coordinator_agent = None
+memory_agent = None
+product_agent = None
+writer_agent = None
+
+def initialize_agents():
+    """Initialize the multi-agent system"""
+    global coordinator_agent, memory_agent, product_agent, writer_agent
+
+    if db is None:
+        logger.warning("⚠️ Database not connected, multi-agent system disabled")
+        return
+
+    try:
+        logger.info("🤖 Initializing multi-agent system...")
+
+        # Initialize individual agents
+        memory_agent = MemoryAgent(db=db)
+        product_agent = ProductAgent(db=db)
+        writer_agent = WriterAgent(db=db)
+        coordinator_agent = CoordinatorAgent(db=db)
+
+        # Configure WriterAgent with LLM functions
+        llm_functions = {
+            "openai": call_openai,
+            "anthropic": call_anthropic,
+            "google": call_gemini,
+            "openrouter": call_openrouter
+        }
+        writer_agent.set_llm_functions(llm_functions)
+
+        # Link agents to coordinator
+        coordinator_agent.set_agents(memory_agent, product_agent, writer_agent)
+
+        # Preload embedding model for faster first query
+        preload_model()
+
+        logger.info("✅ Multi-agent system initialized successfully")
+
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize multi-agent system: {e}")
 
 
 # ==== HELPER FUNCTIONS ====
@@ -509,7 +576,16 @@ async def status():
 
 @app.post("/query")
 async def query_llm(request: QueryRequest):
-    """Query selected LLM provider, store response + citations"""
+    """
+    Query LLM using multi-agent architecture.
+
+    This endpoint now routes through the multi-agent system which:
+    1. Detects intent (product search, memory retrieval, general)
+    2. Routes to appropriate agents (Memory, Product, Writer)
+    3. Synthesizes final response with enriched context
+
+    Falls back to direct LLM call if multi-agent system is unavailable.
+    """
     if db is None:
         raise HTTPException(status_code=503, detail="Database not connected")
 
@@ -520,23 +596,80 @@ async def query_llm(request: QueryRequest):
 
     try:
         model = request.model_name
+        product_cards = None
+        intent_info = None
 
-        if request.model_provider == "openai":
-            response_text, citations, raw, tokens = call_openai(model, request.query)
-        elif request.model_provider == "anthropic":
-            response_text, citations, raw, tokens = call_anthropic(model, request.query)
-        elif request.model_provider == "openrouter":
-            response_text, citations, raw, tokens = call_openrouter(model, request.query)
-        elif request.model_provider == "google":
-            response_text, citations, raw, tokens = call_gemini(model, request.query)
+        # Try using multi-agent system first
+        if coordinator_agent is not None:
+            logger.info("🤖 Using multi-agent system")
+
+            # Prepare request for coordinator
+            agent_request = {
+                "query": request.query,
+                "session_id": request.session_id,
+                "user_id": request.user_id,
+                "model": model,
+                "history": [{"role": msg.role, "content": msg.content} for msg in request.history] if request.history else []
+            }
+
+            # Run through multi-agent system
+            result = await coordinator_agent.run(agent_request)
+            agent_output = result["output"]
+
+            response_text = agent_output["response"]
+            citations = agent_output.get("citations", [])
+            tokens = agent_output.get("tokens")
+            intent_info = {
+                "intent": agent_output.get("intent"),
+                "confidence": agent_output.get("intent_confidence"),
+                "agents_used": agent_output.get("agents_used", [])
+            }
+
+            # Extract product cards if present
+            product_cards = agent_output.get("product_cards")
+
+            # Store embeddings for RAG (async, don't wait)
+            if memory_agent:
+                # Store user query embedding
+                try:
+                    await memory_agent.store_message_embedding(
+                        session_id=request.session_id,
+                        role="user",
+                        content=request.query,
+                        message_index=len(request.history) if request.history else 0
+                    )
+                    # Store assistant response embedding
+                    await memory_agent.store_message_embedding(
+                        session_id=request.session_id,
+                        role="assistant",
+                        content=response_text,
+                        message_index=len(request.history) + 1 if request.history else 1
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to store embeddings: {e}")
+
+            raw = {}  # Multi-agent raw response placeholder
+
         else:
-            raise HTTPException(status_code=400, detail="Invalid model provider")
+            # Fallback to direct LLM call
+            logger.info("⚠️ Multi-agent system unavailable, using direct LLM call")
+
+            if request.model_provider == "openai":
+                response_text, citations, raw, tokens = call_openai(model, request.query)
+            elif request.model_provider == "anthropic":
+                response_text, citations, raw, tokens = call_anthropic(model, request.query)
+            elif request.model_provider == "openrouter":
+                response_text, citations, raw, tokens = call_openrouter(model, request.query)
+            elif request.model_provider == "google":
+                response_text, citations, raw, tokens = call_gemini(model, request.query)
+            else:
+                raise HTTPException(status_code=400, detail="Invalid model provider")
 
         end_time = datetime.utcnow()
         end_time_ms = int(end_time.timestamp() * 1000)
         latency_ms = (end_time - start_time).total_seconds() * 1000
 
-        # Log to MongoDB (LEGACY - keeping for backward compatibility)
+        # Log to MongoDB (keeping for backward compatibility)
         query_log = {
             "user_id": request.user_id,
             "session_id": request.session_id,
@@ -546,10 +679,20 @@ async def query_llm(request: QueryRequest):
             "model_used": model,
             "timestamp": start_time,
             "citations": citations,
-            "raw": raw,
+            "raw": raw if raw else {},
             "tokens": tokens,
             "latency_ms": latency_ms,
         }
+
+        # Add multi-agent specific fields if available
+        if intent_info:
+            query_log["intent"] = intent_info.get("intent")
+            query_log["intent_confidence"] = intent_info.get("confidence")
+            query_log["agents_used"] = intent_info.get("agents_used")
+
+        if product_cards:
+            query_log["product_cards"] = product_cards
+
         queries_collection.insert_one(query_log)
 
         # NEW: Also log to sessions collection
@@ -592,7 +735,20 @@ async def query_llm(request: QueryRequest):
         else:
             logger.warning(f"⚠️ Session {request.session_id} not found, only logged to legacy collections")
 
-        return {"response": response_text, "citations": citations}
+        # Return response with optional product_cards
+        response_data = {
+            "response": response_text,
+            "citations": citations
+        }
+
+        if product_cards:
+            response_data["product_cards"] = product_cards
+
+        if intent_info:
+            response_data["intent"] = intent_info.get("intent")
+            response_data["agents_used"] = intent_info.get("agents_used")
+
+        return response_data
 
     except requests.exceptions.RequestException as e:
         logger.error(f"API request failed: {e}")
@@ -652,6 +808,49 @@ async def log_event(request: LogEventRequest):
     logger.info(f"📦 Event logged: {request.event_type} for user {request.user_id}")
 
     return {"status": "success", "message": "Event logged successfully"}
+
+
+# ==== PRODUCT SEARCH ENDPOINT ====
+@app.get("/search/products")
+async def search_products(query: str, max_results: int = 10):
+    """
+    Search products in the products collection.
+
+    Args:
+        query: Search query string
+        max_results: Maximum number of results to return (default: 10)
+
+    Returns:
+        List of product cards
+    """
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+
+    if product_agent is None:
+        raise HTTPException(status_code=503, detail="Product agent not initialized")
+
+    try:
+        logger.info(f"🛍️ Searching products: {query}")
+
+        # Use ProductAgent to search
+        result = await product_agent.run({
+            "query": query,
+            "max_results": max_results
+        })
+
+        products = result["output"].get("products", [])
+
+        logger.info(f"Found {len(products)} products")
+
+        return {
+            "products": products,
+            "total": len(products),
+            "query": query
+        }
+
+    except Exception as e:
+        logger.error(f"Error searching products: {e}")
+        raise HTTPException(status_code=500, detail=f"Error searching products: {str(e)}")
 
 
 # ==== SESSION-BASED ENDPOINTS ====
