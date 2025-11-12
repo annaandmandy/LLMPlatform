@@ -23,6 +23,7 @@ from openai import OpenAI
 import anthropic
 from google import genai
 from google.genai import types
+from utils.embeddings import preload_model
 
 # ==== ENV + LOGGING ====
 load_dotenv()
@@ -206,7 +207,6 @@ class SessionEndRequest(AppBaseModel):
 # ==== MULTI-AGENT SYSTEM INITIALIZATION ====
 from agents import CoordinatorAgent, MemoryAgent, ProductAgent, WriterAgent
 from agents.writer_agent import DEFAULT_SYSTEM_PROMPT
-from utils.embeddings import preload_model
 from utils.intent_classifier import detect_intent
 
 # Initialize agents
@@ -1111,6 +1111,12 @@ async def get_tokens_data(model_provider: Optional[str] = None, model_used: Opti
             "model_avg_latency": model_avg_latency
         }
     }
+
+
+# 👇 preload the embedding model before serving requests
+print("Preloading embedding model...")
+preload_model()
+print("Model preloaded successfully. Starting server...")
 
 
 if __name__ == "__main__":

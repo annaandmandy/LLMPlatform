@@ -5,40 +5,52 @@ Handles text embeddings for semantic search and RAG retrieval.
 Uses sentence-transformers for efficient local embeddings.
 """
 
+import os
+from pathlib import Path
 from typing import List, Optional
 import numpy as np
 import logging
+from sentence_transformers import SentenceTransformer
 
 logger = logging.getLogger(__name__)
 
 # Global model instance (lazy loaded)
 _embedding_model = None
+_MODEL_NAME = "all-MiniLM-L6-v2"
+
+
+def _resolve_cache_dir() -> Optional[str]:
+    """
+    Determine a writable cache directory for SentenceTransformer models.
+    Returns None to let sentence-transformers use its defaults.
+    """
+    env_cache = os.getenv("EMBEDDING_MODEL_CACHE")
+    if env_cache:
+        cache_path = Path(env_cache).expanduser()
+    else:
+        cache_path = Path(__file__).resolve().parent.parent / "cache" / "models"
+
+    try:
+        cache_path.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        logger.warning("Cache dir %s unavailable (%s); using default huggingface cache.", cache_path, exc)
+        return None
+
+    if os.access(cache_path, os.W_OK):
+        return str(cache_path)
+
+    logger.warning("Cache dir %s not writable; using default huggingface cache.", cache_path)
+    return None
 
 
 def get_embedding_model():
-    """
-    Get or initialize the embedding model.
-
-    Uses all-MiniLM-L6-v2 (384 dimensions, fast, good quality)
-
-    Returns:
-        SentenceTransformer model instance
-    """
     global _embedding_model
-
     if _embedding_model is None:
-        try:
-            from sentence_transformers import SentenceTransformer
-            logger.info("Loading embedding model: all-MiniLM-L6-v2")
-            _embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
-            logger.info("Embedding model loaded successfully")
-        except ImportError:
-            logger.error("sentence-transformers not installed. Run: pip install sentence-transformers")
-            raise
-        except Exception as e:
-            logger.error(f"Failed to load embedding model: {str(e)}")
-            raise
-
+        logger.info("Loading embedding model...")
+        cache_dir = _resolve_cache_dir()
+        model_kwargs = {"cache_folder": cache_dir} if cache_dir else {}
+        _embedding_model = SentenceTransformer(_MODEL_NAME, **model_kwargs)
+        logger.info("Model loaded successfully.")
     return _embedding_model
 
 
