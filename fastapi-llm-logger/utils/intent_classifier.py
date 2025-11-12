@@ -1,9 +1,7 @@
 """
 Intent Classification Utility
 
-Detects user intent from query text using a hybrid approach:
-1. Keyword-based rules (fast, deterministic)
-2. LLM-based classification (more accurate, slower)
+Detects user intent from query text using keyword-based rules with optional LLM fallback.
 """
 
 import re
@@ -26,14 +24,11 @@ class IntentClassifier:
 
     Intents:
     - product_search: Looking for products to buy
-    - summarize: Request for conversation summary
-    - retrieve_memory: Request for past conversation context
-    - general: General conversation
+    - general: Everything else
     """
 
     def __init__(self, keyword_file: str = "intent_keywords.json"):
         """Initialize the intent classifier and compile patterns."""
-        # get absolute path of this script’s directory
         base_dir = os.path.dirname(os.path.abspath(__file__))
         self.keyword_file = os.path.join(base_dir, keyword_file)
 
@@ -43,13 +38,10 @@ class IntentClassifier:
         with open(self.keyword_file, "r", encoding="utf-8") as f:
             keyword_data = json.load(f)
 
-        # compile patterns
-        self.product_patterns = [re.compile(p, re.IGNORECASE)
-                                for p in keyword_data["product_search"]["patterns"]]
-        self.summarize_patterns = [re.compile(p, re.IGNORECASE)
-                                for p in keyword_data["summarize"]["patterns"]]
-        self.memory_patterns = [re.compile(p, re.IGNORECASE)
-                                for p in keyword_data["retrieve_memory"]["patterns"]]
+        self.product_patterns = [
+            re.compile(p, re.IGNORECASE)
+            for p in keyword_data["product_search"]["patterns"]
+        ]
 
         logger.info(f"✅ IntentClassifier initialized from {self.keyword_file}")
 
@@ -65,7 +57,7 @@ class IntentClassifier:
             Dictionary containing:
                 - intent: The detected intent
                 - confidence: Confidence score (0-1)
-                - matched_patterns: List of matched patterns (for debugging)
+                - matched_patterns: Number of matched patterns (for debugging)
         """
         query_lower = query.lower().strip()
 
@@ -76,24 +68,6 @@ class IntentClassifier:
                 "intent": "product_search",
                 "confidence": min(0.5 + (product_matches * 0.15), 1.0),
                 "matched_patterns": product_matches
-            }
-
-        # Check for summarize intent
-        summarize_matches = self._count_matches(query, self.summarize_patterns)
-        if summarize_matches > 0:
-            return {
-                "intent": "summarize",
-                "confidence": min(0.6 + (summarize_matches * 0.2), 1.0),
-                "matched_patterns": summarize_matches
-            }
-
-        # Check for memory retrieval intent
-        memory_matches = self._count_matches(query, self.memory_patterns)
-        if memory_matches > 0:
-            return {
-                "intent": "retrieve_memory",
-                "confidence": min(0.6 + (memory_matches * 0.2), 1.0),
-                "matched_patterns": memory_matches
             }
 
         # Default to general intent
@@ -147,14 +121,8 @@ class IntentClassifier:
                         "role": "system",
                         "content": (
                             "You are an intent classification system. Classify user queries into one of these intents:\n\n"
-                            "1. product_search: User wants to find, buy, compare, or get recommendations for products/items\n"
-                            "   Examples: \"top 3 chocolate bars\", \"best headphones\", \"I need running shoes\", \"recommend a laptop\"\n\n"
-                            "2. summarize: User requests a summary of the conversation\n"
-                            "   Examples: \"summarize our chat\", \"recap what we discussed\", \"give me a summary\"\n\n"
-                            "3. retrieve_memory: User references past conversations or asks about previous topics\n"
-                            "   Examples: \"what did we discuss earlier?\", \"remember what I said about?\", \"you mentioned before\"\n\n"
-                            "4. general: General questions, factual inquiries, chitchat, or explanations (NOT product-related)\n"
-                            "   Examples: \"tell me about machine learning\", \"how does photosynthesis work?\", \"hello\"\n\n"
+                            "1. product_search: User wants to find, buy, compare, or get recommendations for products/items.\n"
+                            "2. general: Everything else (chatting, explanations, non-product requests).\n\n"
                             "IMPORTANT: If the query mentions specific products, rankings (\"top 3\", \"best\"), or requests recommendations, classify as product_search.\n\n"
                             "Respond ONLY with valid JSON:\n"
                             '{"intent": "product_search", "confidence": 0.95, "reasoning": "brief explanation"}'
@@ -185,7 +153,7 @@ class IntentClassifier:
                 reasoning = result.get("reasoning", "")
 
                 # Validate intent
-                valid_intents = ["product_search", "summarize", "retrieve_memory", "general"]
+                valid_intents = ["product_search", "general"]
                 if intent not in valid_intents:
                     logger.warning(f"Invalid intent '{intent}' from LLM, defaulting to 'general'")
                     intent = "general"

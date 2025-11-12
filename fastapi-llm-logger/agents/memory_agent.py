@@ -62,6 +62,21 @@ class MemoryAgent(BaseAgent):
             logger.warning(f"Unknown action: {action}")
             return {"error": f"Unknown action: {action}"}
 
+    async def summarize_session(self, session_id: str) -> Dict[str, Any]:
+        """
+        Public helper to summarize a session by ID.
+
+        Args:
+            session_id: Session identifier
+
+        Returns:
+            Summary payload identical to execute({"action": "summarize"})
+        """
+        if not session_id:
+            return {"summary": "No session ID provided"}
+
+        return await self._summarize_session({"session_id": session_id})
+
     async def _summarize_session(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """
         Generate a summary of the conversation session.

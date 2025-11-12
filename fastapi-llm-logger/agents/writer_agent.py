@@ -188,18 +188,6 @@ class WriterAgent(BaseAgent):
             )
             prompt_parts.append("")
 
-        elif intent == "summarize":
-            prompt_parts.append("## Instructions:")
-            prompt_parts.append("Provide a concise summary of the conversation based on the context above.")
-            prompt_parts.append("Always use English to response.")
-            prompt_parts.append("")
-
-        elif intent == "retrieve_memory":
-            prompt_parts.append("## Instructions:")
-            prompt_parts.append("Answer the query using the relevant past context provided above. Reference specific details from past conversations.")
-            prompt_parts.append("Always use English to response.")
-            prompt_parts.append("")
-
         # Add the user query
         prompt_parts.append("## User Query:")
         prompt_parts.append(query)

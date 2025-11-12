@@ -17,7 +17,7 @@ import json
 import logging
 import warnings
 from dotenv import load_dotenv
-from pymongo import MongoClient
+from pymongo import MongoClient, ReturnDocument
 import requests
 from openai import OpenAI
 import anthropic
@@ -756,13 +756,27 @@ async def query_llm(request: QueryRequest):
         }
 
         # Add both events to session (if session exists)
-        result = sessions_collection.update_one(
+        session_doc = sessions_collection.find_one_and_update(
             {"session_id": request.session_id},
-            {"$push": {"events": {"$each": [prompt_event, response_event]}}}
+            {
+                "$push": {"events": {"$each": [prompt_event, response_event]}},
+                "$inc": {"message_pairs_logged": 1}
+            },
+            return_document=ReturnDocument.AFTER
         )
 
-        if result.matched_count > 0:
+        if session_doc:
             logger.info(f"✅ Query logged to session {request.session_id}")
+
+            # Automatically summarize every N pairs if memory agent available
+            pair_count = session_doc.get("message_pairs_logged", 0)
+            summary_interval = getattr(memory_agent, "summary_interval", 0) if memory_agent else 0
+            if memory_agent and summary_interval and pair_count % summary_interval == 0:
+                try:
+                    await memory_agent.summarize_session(request.session_id)
+                    logger.info(f"📝 Session {request.session_id} summarized at {pair_count} pairs")
+                except Exception as summarize_error:
+                    logger.warning(f"Failed to summarize session {request.session_id}: {summarize_error}")
         else:
             logger.warning(f"⚠️ Session {request.session_id} not found, only logged to legacy collections")
 
@@ -910,7 +924,8 @@ async def start_session(request: SessionStartRequest):
         "start_time": datetime.utcnow(),
         "end_time": None,
         "environment": request.environment.dict(),
-        "events": []
+        "events": [],
+        "message_pairs_logged": 0
     }
 
     sessions_collection.insert_one(session_doc)

@@ -17,23 +17,5 @@
       "\\b(fitness|gym|yoga|mat|dumbbell|equipment|tracker|smartwatch)\\b",
       "\\b(pet|dog|cat|toy|food|treat|leash|bed|bowl)\\b"
     ]
-  },
-
-  "summarize": {
-    "patterns": [
-      "\\b(summarize|summary|recap|wrap up|sum up|overview|digest|brief|recap of)\\b",
-      "\\b(what (did|have) (we|i)).*(discuss|talk|cover)\\b",
-      "\\btell me (what|about).*(said|discussed|talked)\\b"
-    ]
-  },
-
-  "retrieve_memory": {
-    "patterns": [
-      "\\b(remember|recall|mentioned|said|remind me)\\b",
-      "\\b(earlier|before|previously|past|last time)\\b",
-      "\\b(history|conversation|chat|log).*(show|display|retrieve|open|load)\\b",
-      "\\b(what (did|have)).*(say|tell|mention)\\b",
-      "\\bdo you (remember|recall|know)\\b"
-    ]
   }
 }
