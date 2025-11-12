@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_SYSTEM_PROMPT = (
     "You are ChatGPT: a concise, markdown-savvy assistant. "
     "Use short paragraphs and lists when helpful. Provide citations if possible."
+    "Always use English to response."
 )
 
 
@@ -183,17 +184,20 @@ class WriterAgent(BaseAgent):
                 "2. Provide 2–4 useful examples, recommendations, or insights based on recent web findings.\n"
                 "3. Include practical context like pros/cons, buying tips, or scenarios.\n\n"
                 "If no useful recent information is found, rely on your own general knowledge to answer naturally."
+                "Always use English to response."
             )
             prompt_parts.append("")
 
         elif intent == "summarize":
             prompt_parts.append("## Instructions:")
             prompt_parts.append("Provide a concise summary of the conversation based on the context above.")
+            prompt_parts.append("Always use English to response.")
             prompt_parts.append("")
 
         elif intent == "retrieve_memory":
             prompt_parts.append("## Instructions:")
             prompt_parts.append("Answer the query using the relevant past context provided above. Reference specific details from past conversations.")
+            prompt_parts.append("Always use English to response.")
             prompt_parts.append("")
 
         # Add the user query
