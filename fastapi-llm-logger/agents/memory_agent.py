@@ -95,13 +95,13 @@ class MemoryAgent(BaseAgent):
                 if event.get("type") == "prompt":
                     messages.append({
                         "role": "user",
-                        "content": event.get("data", {}).get("query", ""),
+                        "content": event.get("data", {}).get("query") or event.get("data", {}).get("text", ""),
                         "timestamp": event.get("t")
                     })
                 elif event.get("type") == "model_response":
                     messages.append({
                         "role": "assistant",
-                        "content": event.get("data", {}).get("response", ""),
+                        "content": event.get("data", {}).get("response") or event.get("data", {}).get("text", ""),
                         "timestamp": event.get("t")
                     })
 
@@ -114,9 +114,18 @@ class MemoryAgent(BaseAgent):
             # Store summary in summaries collection
             await self._store_summary(session_id, summary_text, len(messages))
 
+            transcript = [
+                {
+                    "role": msg.get("role", "user"),
+                    "content": msg.get("content", "")
+                }
+                for msg in messages
+            ]
+
             return {
                 "summary": summary_text,
-                "message_count": len(messages)
+                "message_count": len(messages),
+                "transcript": transcript
             }
 
         except Exception as e:
@@ -135,7 +144,7 @@ class MemoryAgent(BaseAgent):
         """
         query = request.get("query", "")
         session_id = request.get("session_id")
-        top_k = request.get("top_k", 3)
+        top_k = request.get("top_k", 10)
 
         if not query:
             return {"context": []}
@@ -266,31 +275,65 @@ class MemoryAgent(BaseAgent):
 
     def _create_summary_text(self, messages: List[Dict]) -> str:
         """
-        Create a simple summary from messages.
+        Create a lightweight conversational summary without calling an LLM.
 
         Args:
-            messages: List of message dictionaries
+            messages: List of message dictionaries ordered by time
 
         Returns:
-            Summary text
-
-        Note: This is a basic implementation. In production, you'd use an LLM
-        to generate better summaries.
+            Human-friendly summary text
         """
-        if len(messages) == 0:
-            return "No messages"
+        if not messages:
+            return "No conversation history found."
 
-        summary_parts = []
-        summary_parts.append(f"Conversation with {len(messages)} messages:")
+        def _clean(text: str, limit: int = 180) -> str:
+            cleaned = " ".join(text.split())
+            return (cleaned[:limit] + "…") if len(cleaned) > limit else cleaned
 
-        # Group by user/assistant pairs
-        for i in range(0, min(len(messages), 20), 2):  # Limit to first 10 pairs
-            if i < len(messages):
-                user_msg = messages[i].get("content", "")[:100]
-                summary_parts.append(f"- User: {user_msg}...")
+        pairs: List[Dict[str, str]] = []
+        pending_user: Optional[str] = None
 
-                if i + 1 < len(messages):
-                    assistant_msg = messages[i + 1].get("content", "")[:100]
-                    summary_parts.append(f"  Assistant: {assistant_msg}...")
+        for msg in messages:
+            role = msg.get("role")
+            content = msg.get("content", "")
+            if role == "user":
+                pending_user = content
+            elif role == "assistant" and pending_user:
+                pairs.append({
+                    "user": pending_user,
+                    "assistant": content
+                })
+                pending_user = None
 
-        return "\n".join(summary_parts)
+        if not pairs:
+            return "Conversation contains system messages only."
+
+        summary_lines = ["Here’s a quick summary of the recent conversation:", ""]
+
+        recent_pairs = pairs[-5:]  # last up to five exchanges
+        for idx, pair in enumerate(recent_pairs, start=1):
+            summary_lines.append(f"{idx}. **User asked:** {_clean(pair['user'])}")
+            summary_lines.append(f"   **Assistant replied:** {_clean(pair['assistant'])}")
+
+        # Extract key takeaways from assistant replies
+        takeaways: List[str] = []
+        for pair in recent_pairs:
+            reply = pair["assistant"]
+            for line in reply.splitlines():
+                line = line.strip("•*- ").strip()
+                if len(line) < 20:
+                    continue
+                if line[0].isalpha():
+                    takeaways.append(_clean(line, 140))
+                if len(takeaways) >= 5:
+                    break
+            if len(takeaways) >= 5:
+                break
+
+        if takeaways:
+            summary_lines.append("")
+            summary_lines.append("Key points mentioned:")
+            for takeaway in takeaways:
+                summary_lines.append(f"- {takeaway}")
+
+        return "\n".join(summary_lines)

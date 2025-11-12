@@ -125,14 +125,28 @@ class CoordinatorAgent(BaseAgent):
 
 
         elif intent == "summarize":
-            # Summarization flow: MemoryAgent (summarize mode)
-            agents_used.append("MemoryAgent")
+            # Summarization flow: MemoryAgent (fetch transcript) -> WriterAgent
+            agents_used.extend(["MemoryAgent", "WriterAgent"])
 
             memory_result = await self.memory_agent.run({
                 **request,
                 "action": "summarize"
             })
-            final_response = memory_result["output"]["summary"]
+            transcript = memory_result["output"].get("transcript") or request.get("history", [])
+
+            writer_request = {
+                **request,
+                "intent": intent,
+                "history": transcript,
+                "memory_context": None,
+                "product_cards": None
+            }
+            writer_result = await self.writer_agent.run(writer_request)
+            writer_output = writer_result["output"]
+            final_response = writer_output["response"]
+            collected_citations = writer_output.get("citations")
+            collected_tokens = writer_output.get("tokens")
+            raw_response = writer_output.get("raw_response")
 
         elif intent == "retrieve_memory":
             # Memory retrieval flow: MemoryAgent -> WriterAgent

@@ -171,22 +171,19 @@ class WriterAgent(BaseAgent):
                 prompt_parts.append(f"- (Similarity: {similarity:.2f}) {content[:150]}")
             prompt_parts.append("")
 
-        # Add product information if available
-        if product_cards and len(product_cards) > 0:
-            prompt_parts.append("## Available Products:")
-            for idx, product in enumerate(product_cards[:5], 1):
-                title = product.get("title", "")
-                price = product.get("price", 0)
-                seller = product.get("seller", "")
-                prompt_parts.append(f"{idx}. **{title}** - ${price} (by {seller})")
-            prompt_parts.append("")
-            prompt_parts.append("Note: Include these products naturally in your response when relevant. The frontend will display them as preview cards automatically.")
-            prompt_parts.append("")
-
         # Add intent-specific instructions
         if intent == "product_search":
             prompt_parts.append("## Instructions:")
-            prompt_parts.append("Help the user find the right product from the list above. Highlight key features and pricing. Be concise.")
+            prompt_parts.append(
+                "You are a helpful AI assistant that uses up-to-date web information to answer product and trend-related questions. "
+                "Always use the web search tool to confirm or find the most recent data — such as rankings, release dates, prices, or availability. "
+                "If relevant information is found, cite the sources clearly in markdown format.\n\n"
+                "### Response style:\n"
+                "1. Start with a brief summary or overview.\n"
+                "2. Provide 2–4 useful examples, recommendations, or insights based on recent web findings.\n"
+                "3. Include practical context like pros/cons, buying tips, or scenarios.\n\n"
+                "If no useful recent information is found, rely on your own general knowledge to answer naturally."
+            )
             prompt_parts.append("")
 
         elif intent == "summarize":
@@ -229,30 +226,3 @@ class WriterAgent(BaseAgent):
             # Default to openai
             logger.warning(f"Unknown model {model}, defaulting to openai provider")
             return "openai"
-
-    def format_response_with_products(
-        self,
-        response: str,
-        product_cards: List[Dict]
-    ) -> str:
-        """
-        Format response to include product references.
-
-        Args:
-            response: LLM response text
-            product_cards: Product cards to reference
-
-        Returns:
-            Formatted response with product mentions
-
-        Note: The frontend will handle actual product card rendering.
-        """
-        if not product_cards or len(product_cards) == 0:
-            return response
-
-        # Add a note about products at the end if not already mentioned
-        if "product" not in response.lower():
-            product_note = f"\n\n---\n\n*Found {len(product_cards)} relevant products for you.*"
-            return response + product_note
-
-        return response
