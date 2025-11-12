@@ -23,7 +23,6 @@ from openai import OpenAI
 import anthropic
 from google import genai
 from google.genai import types
-from utils.embeddings import preload_model
 
 # ==== ENV + LOGGING ====
 load_dotenv()
@@ -244,8 +243,6 @@ def initialize_agents():
         # Link agents to coordinator
         coordinator_agent.set_agents(memory_agent, product_agent, writer_agent)
 
-        # Preload embedding model for faster first query
-        preload_model()
 
         logger.info("✅ Multi-agent system initialized successfully")
 
@@ -1112,11 +1109,6 @@ async def get_tokens_data(model_provider: Optional[str] = None, model_used: Opti
         }
     }
 
-
-# 👇 preload the embedding model before serving requests
-print("Preloading embedding model...")
-preload_model()
-print("Model preloaded successfully. Starting server...")
 
 
 if __name__ == "__main__":
