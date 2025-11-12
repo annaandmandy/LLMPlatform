@@ -3,10 +3,24 @@
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import ProductCard from "./ProductCard";
 
 interface Citation {
   title: string;
   url: string;
+}
+
+interface ProductCardData {
+  title: string;
+  description?: string;
+  price?: string;
+  rating?: number;
+  reviews_count?: number;
+  image?: string;
+  url: string;
+  seller?: string;
+  tag?: string;
+  delivery?: string;
 }
 
 interface Message {
@@ -14,6 +28,7 @@ interface Message {
   content: string;
   timestamp: Date;
   citations?: Citation[];
+  product_cards?: ProductCardData[];
 }
 
 interface MessageHistoryProps {
@@ -135,64 +150,85 @@ export default function MessageHistory({
               message.role === "user" ? "justify-end" : "justify-start"
             }`}
           >
-            <div
-              className={`max-w-[80%] rounded-lg px-4 py-3 ${
-                message.role === "user"
-                  ? "bg-blue-600 text-white"
-                  : "bg-white text-gray-800 shadow-md border border-gray-200"
-              }`}
-            >
-              <div className="prose prose-sm max-w-none">
-                {message.role === "assistant"
-                  ? renderMarkdown(message.content, queryContext)
-                  : message.content}
-              </div>
-
-              {/* ✅ TOGGLEABLE CITATIONS */}
-              {message.role === "assistant" &&
-                message.citations &&
-                message.citations.length > 0 && (
-                  <div className="mt-3 border-t border-gray-200 pt-2">
-                    <button
-                      onClick={() => toggleSources(index)}
-                      className="text-blue-600 text-xs hover:underline flex items-center gap-1"
-                    >
-                      {showSources ? "Hide Sources ▲" : "Show Sources ▼"}
-                    </button>
-
-                    {showSources && (
-                      <ul className="mt-2 space-y-1 text-xs text-gray-700">
-                        {message.citations.map((src, sIdx) => (
-                          <li key={sIdx}>
-                            <a
-                              href={src.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              onClick={() =>
-                                handleLinkClick(src.url, queryContext)
-                              }
-                              className="text-blue-600 hover:text-blue-800 underline break-all"
-                            >
-                              🔗 {src.title || src.url}
-                            </a>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                )}
-
+            <div className="max-w-[80%] flex flex-col gap-3">
+              {/* Message Bubble */}
               <div
-                className={`text-xs mt-2 ${
-                  message.role === "user" ? "text-blue-100" : "text-gray-400"
+                className={`rounded-lg px-4 py-3 ${
+                  message.role === "user"
+                    ? "bg-blue-600 text-white"
+                    : "bg-white text-gray-800 shadow-md border border-gray-200"
                 }`}
               >
-                {message.timestamp.toLocaleTimeString()}
+                <div className="prose prose-sm max-w-none">
+                  {message.role === "assistant"
+                    ? renderMarkdown(message.content, queryContext)
+                    : message.content}
+                </div>
+
+                {/* ✅ TOGGLEABLE CITATIONS */}
+                {message.role === "assistant" &&
+                  message.citations &&
+                  message.citations.length > 0 && (
+                    <div className="mt-3 border-t border-gray-200 pt-2">
+                      <button
+                        onClick={() => toggleSources(index)}
+                        className="text-blue-600 text-xs hover:underline flex items-center gap-1"
+                      >
+                        {showSources ? "Hide Sources ▲" : "Show Sources ▼"}
+                      </button>
+
+                      {showSources && (
+                        <ul className="mt-2 space-y-1 text-xs text-gray-700">
+                          {message.citations.map((src, sIdx) => (
+                            <li key={sIdx}>
+                              <a
+                                href={src.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={() =>
+                                  handleLinkClick(src.url, queryContext)
+                                }
+                                className="text-blue-600 hover:text-blue-800 underline break-all"
+                              >
+                                🔗 {src.title || src.url}
+                              </a>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+
+                <div
+                  className={`text-xs mt-2 ${
+                    message.role === "user" ? "text-blue-100" : "text-gray-400"
+                  }`}
+                >
+                  {message.timestamp.toLocaleTimeString()}
+                </div>
               </div>
+
+              {/* Product Cards - Show for each message that has them */}
+              {message.role === "assistant" && message.product_cards && message.product_cards.length > 0 && (
+                <div className="w-full">
+                  <div className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+                    <span>🛍️</span>
+                    <span>Related Products</span>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <div className="flex gap-3 pb-2">
+                      {message.product_cards.map((product, idx) => (
+                        <ProductCard key={idx} {...product} />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         );
       })}
+
       <div ref={messagesEndRef} />
     </div>
   );

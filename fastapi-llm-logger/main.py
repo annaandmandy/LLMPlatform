@@ -9,12 +9,13 @@ This backend handles:
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 import os
 import json
 import logging
+import warnings
 from dotenv import load_dotenv
 from pymongo import MongoClient
 import requests
@@ -28,6 +29,13 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Suppress noisy pydantic warnings from third-party Operation models
+warnings.filterwarnings(
+    "ignore",
+    message=r'Field name "(name|metadata|done|error)" shadows an attribute in parent "Operation"',
+    category=UserWarning,
+)
+
 # ==== FASTAPI APP ====
 app = FastAPI(title="LLM Interaction Logger", version="2.0.0")
 
@@ -39,6 +47,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Startup event to initialize multi-agent system
+@app.on_event("startup")
+async def startup_event():
+    """Initialize multi-agent system on startup"""
+    initialize_agents()
+
 # ==== MONGODB CONFIG ====
 MONGODB_URI = os.getenv("MONGODB_URI")
 MONGO_DB = os.getenv("MONGO_DB", "llm_experiment")
@@ -49,6 +63,13 @@ try:
     queries_collection = db["queries"]
     events_collection = db["events"]
     sessions_collection = db["sessions"]  # NEW: Session-based tracking
+
+    # NEW: Multi-agent collections
+    summaries_collection = db["summaries"]
+    vectors_collection = db["vectors"]
+    products_collection = db["products"]
+    agent_logs_collection = db["agent_logs"]
+
     logger.info("✅ Connected to MongoDB")
 except Exception as e:
     logger.error(f"❌ MongoDB connection failed: {e}")
@@ -62,16 +83,26 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 GOOGLE_API_KEY=os.getenv("GOOGLE_API_KEY")
 
 # ==== REQUEST SCHEMAS ====
-class QueryRequest(BaseModel):
+class AppBaseModel(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+
+class MessageHistory(AppBaseModel):
+    """Message in conversation history"""
+    role: str  # "user" or "assistant"
+    content: str
+
+class QueryRequest(AppBaseModel):
     user_id: str
     session_id: str
     query: str
     model_provider: str  # "openai", "anthropic", or "openrouter"
     model_name: Optional[str] = None
     web_search: Optional[bool] = False
+    history: Optional[List[MessageHistory]] = []  # NEW: Conversation history for multi-agent context
 
 
-class LogEventRequest(BaseModel):
+class LogEventRequest(AppBaseModel):
     user_id: str
     session_id: str
     event_type: str
@@ -82,7 +113,7 @@ class LogEventRequest(BaseModel):
 
 
 # ==== NEW SESSION-BASED SCHEMAS ====
-class Environment(BaseModel):
+class Environment(AppBaseModel):
     device: str
     browser: str
     os: str
@@ -91,7 +122,7 @@ class Environment(BaseModel):
     connection: Optional[str] = None
 
 
-class EventData(BaseModel):
+class EventData(AppBaseModel):
     """Event-specific data fields"""
     # Generic fields
     text: Optional[str] = None
@@ -133,7 +164,7 @@ class EventData(BaseModel):
     page_url: Optional[str] = None
 
 
-class Event(BaseModel):
+class Event(AppBaseModel):
     """Individual event within a session"""
     t: int  # timestamp in milliseconds since epoch
     type: str  # "prompt", "model_response", "scroll", "click", "hover", "key", "navigate", "copy", "selection", "activity", "feedback", "error", "system"
@@ -153,7 +184,7 @@ class Event(BaseModel):
         return d
 
 
-class SessionStartRequest(BaseModel):
+class SessionStartRequest(AppBaseModel):
     """Request to start a new session"""
     session_id: str
     user_id: str
@@ -161,28 +192,77 @@ class SessionStartRequest(BaseModel):
     environment: Environment
 
 
-class SessionEventRequest(BaseModel):
+class SessionEventRequest(AppBaseModel):
     """Request to add an event to a session"""
     session_id: str
     event: Event
 
 
-class SessionEndRequest(BaseModel):
+class SessionEndRequest(AppBaseModel):
     """Request to end a session"""
     session_id: str
 
 
+# ==== MULTI-AGENT SYSTEM INITIALIZATION ====
+from agents import CoordinatorAgent, MemoryAgent, ProductAgent, WriterAgent
+from agents.writer_agent import DEFAULT_SYSTEM_PROMPT
+from utils.embeddings import preload_model
+from utils.intent_classifier import detect_intent
+
+# Initialize agents
+coordinator_agent = None
+memory_agent = None
+product_agent = None
+writer_agent = None
+
+def initialize_agents():
+    """Initialize the multi-agent system"""
+    global coordinator_agent, memory_agent, product_agent, writer_agent
+
+    if db is None:
+        logger.warning("⚠️ Database not connected, multi-agent system disabled")
+        return
+
+    try:
+        logger.info("🤖 Initializing multi-agent system...")
+
+        # Initialize individual agents
+        memory_agent = MemoryAgent(db=db)
+        product_agent = ProductAgent(db=db)
+        writer_agent = WriterAgent(db=db)
+        coordinator_agent = CoordinatorAgent(db=db)
+
+        # Configure WriterAgent with LLM functions
+        llm_functions = {
+            "openai": call_openai,
+            "anthropic": call_anthropic,
+            "google": call_gemini,
+            "openrouter": call_openrouter
+        }
+        writer_agent.set_llm_functions(llm_functions)
+
+        # Link agents to coordinator
+        coordinator_agent.set_agents(memory_agent, product_agent, writer_agent)
+
+        # Preload embedding model for faster first query
+        preload_model()
+
+        logger.info("✅ Multi-agent system initialized successfully")
+
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize multi-agent system: {e}")
+
+
 # ==== HELPER FUNCTIONS ====
-def call_openai(model: str, query: str):
+def call_openai(model: str, query: str, system_prompt: str | None = None):
     from openai import OpenAI
     import os
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
+    system_message = system_prompt or DEFAULT_SYSTEM_PROMPT
+
     messages = [
-        {"role": "system", "content": (
-            "You are ChatGPT: a concise, markdown-savvy assistant. "
-            "Use short paragraphs and lists when helpful. Provide citations if possible."
-        )},
+        {"role": "system", "content": system_message},
         {"role": "user", "content": query}
     ]
 
@@ -239,12 +319,14 @@ def call_openai(model: str, query: str):
     return text.strip(), sources, getattr(response, "model_dump", lambda: response)(), tokens
 
 
-def call_anthropic(model: str, query: str):
+def call_anthropic(model: str, query: str, system_prompt: str | None = None):
     """
     Call Claude 3.5 with the new web_search_20250305 tool.
     Handles Anthropic SDK's typed content blocks safely.
     """
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+    system_message = system_prompt or DEFAULT_SYSTEM_PROMPT
 
     response = client.messages.create(
         model=model,
@@ -254,6 +336,7 @@ def call_anthropic(model: str, query: str):
             "name": "web_search",
             "max_uses": 5
         }],
+        system=system_message,
         messages=[{"role": "user", "content": query}]
     )
 
@@ -316,7 +399,7 @@ def call_anthropic(model: str, query: str):
     text = "\n".join(text_parts).strip()
     return text, unique, response.model_dump(), tokens
 
-def call_gemini(model: str, query: str):
+def call_gemini(model: str, query: str, system_prompt: str | None = None):
     """
     Call Google Gemini (2.x / 1.5) API with web grounding enabled.
     Handles typed SDK objects and converts response safely to dict.
@@ -328,9 +411,13 @@ def call_gemini(model: str, query: str):
     config = types.GenerateContentConfig(tools=[grounding_tool])
 
     # Generate content
+    system_message = system_prompt or DEFAULT_SYSTEM_PROMPT
+
     response = client.models.generate_content(
         model=model,
-        contents=query,
+        contents=[
+            {"role": "user", "parts": [{"text": f"{system_message}\n\n{query}"}]}
+        ],
         config=config,
     )
 
@@ -401,7 +488,7 @@ def call_gemini(model: str, query: str):
     return text.strip(), unique, raw, tokens
 
 
-def call_openrouter(model: str, query: str):
+def call_openrouter(model: str, query: str, system_prompt: str | None = None):
     """Call OpenRouter API directly (handles Grok and Perplexity citations)."""
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -419,7 +506,7 @@ def call_openrouter(model: str, query: str):
         "messages": [
             {
                 "role": "system",
-                "content": "You are a helpful assistant that provides informative and referenced answers."
+                "content": system_prompt or DEFAULT_SYSTEM_PROMPT
             },
             {"role": "user", "content": query}
         ]
@@ -509,7 +596,16 @@ async def status():
 
 @app.post("/query")
 async def query_llm(request: QueryRequest):
-    """Query selected LLM provider, store response + citations"""
+    """
+    Query LLM using multi-agent architecture.
+
+    This endpoint now routes through the multi-agent system which:
+    1. Detects intent (product search, memory retrieval, general)
+    2. Routes to appropriate agents (Memory, Product, Writer)
+    3. Synthesizes final response with enriched context
+
+    Falls back to direct LLM call if multi-agent system is unavailable.
+    """
     if db is None:
         raise HTTPException(status_code=503, detail="Database not connected")
 
@@ -520,23 +616,88 @@ async def query_llm(request: QueryRequest):
 
     try:
         model = request.model_name
+        product_cards = None
+        product_structured = None
+        intent_info = None
 
-        if request.model_provider == "openai":
-            response_text, citations, raw, tokens = call_openai(model, request.query)
-        elif request.model_provider == "anthropic":
-            response_text, citations, raw, tokens = call_anthropic(model, request.query)
-        elif request.model_provider == "openrouter":
-            response_text, citations, raw, tokens = call_openrouter(model, request.query)
-        elif request.model_provider == "google":
-            response_text, citations, raw, tokens = call_gemini(model, request.query)
+        # Try using multi-agent system first
+        if coordinator_agent is not None:
+            logger.info("🤖 Using multi-agent system")
+
+            # Prepare request for coordinator
+            agent_request = {
+                "query": request.query,
+                "session_id": request.session_id,
+                "user_id": request.user_id,
+                "model": model,
+                "history": [{"role": msg.role, "content": msg.content} for msg in request.history] if request.history else []
+            }
+
+            # Run through multi-agent system
+            result = await coordinator_agent.run(agent_request)
+            agent_output = result["output"]
+
+            response_text = agent_output["response"]
+            citations = agent_output.get("citations", [])
+            tokens = agent_output.get("tokens")
+            raw = agent_output.get("raw_response", {})
+            intent_info = {
+                "intent": agent_output.get("intent"),
+                "confidence": agent_output.get("intent_confidence"),
+                "agents_used": agent_output.get("agents_used", [])
+            }
+
+            # Extract product cards if present
+            product_cards = agent_output.get("product_cards")
+            product_structured = agent_output.get("product_json")
+
+            # Store embeddings for RAG (async, don't wait)
+            if memory_agent:
+                # Store user query embedding
+                try:
+                    await memory_agent.store_message_embedding(
+                        session_id=request.session_id,
+                        role="user",
+                        content=request.query,
+                        message_index=len(request.history) if request.history else 0
+                    )
+                    # Store assistant response embedding
+                    await memory_agent.store_message_embedding(
+                        session_id=request.session_id,
+                        role="assistant",
+                        content=response_text,
+                        message_index=len(request.history) + 1 if request.history else 1
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to store embeddings: {e}")
+
+            if not raw:
+                raw = {}
+
         else:
-            raise HTTPException(status_code=400, detail="Invalid model provider")
+            # Fallback to direct LLM call
+            logger.info("⚠️ Multi-agent system unavailable, using direct LLM call")
+
+            intent_result = await detect_intent(request.query, use_llm=False)
+            system_prompt = DEFAULT_SYSTEM_PROMPT
+            intent_info = intent_result
+
+            if request.model_provider == "openai":
+                response_text, citations, raw, tokens = call_openai(model, request.query, system_prompt=system_prompt)
+            elif request.model_provider == "anthropic":
+                response_text, citations, raw, tokens = call_anthropic(model, request.query, system_prompt=system_prompt)
+            elif request.model_provider == "openrouter":
+                response_text, citations, raw, tokens = call_openrouter(model, request.query, system_prompt=system_prompt)
+            elif request.model_provider == "google":
+                response_text, citations, raw, tokens = call_gemini(model, request.query, system_prompt=system_prompt)
+            else:
+                raise HTTPException(status_code=400, detail="Invalid model provider")
 
         end_time = datetime.utcnow()
         end_time_ms = int(end_time.timestamp() * 1000)
         latency_ms = (end_time - start_time).total_seconds() * 1000
 
-        # Log to MongoDB (LEGACY - keeping for backward compatibility)
+        # Log to MongoDB (keeping for backward compatibility)
         query_log = {
             "user_id": request.user_id,
             "session_id": request.session_id,
@@ -546,10 +707,23 @@ async def query_llm(request: QueryRequest):
             "model_used": model,
             "timestamp": start_time,
             "citations": citations,
-            "raw": raw,
+            "raw": raw if raw else {},
             "tokens": tokens,
             "latency_ms": latency_ms,
         }
+
+        # Add multi-agent specific fields if available
+        if intent_info:
+            query_log["intent"] = intent_info.get("intent")
+            query_log["intent_confidence"] = intent_info.get("confidence")
+            query_log["agents_used"] = intent_info.get("agents_used")
+
+        if product_cards:
+            query_log["product_cards"] = product_cards
+
+        if product_structured:
+            query_log["product_structured"] = product_structured
+
         queries_collection.insert_one(query_log)
 
         # NEW: Also log to sessions collection
@@ -574,6 +748,9 @@ async def query_llm(request: QueryRequest):
         if tokens:
             response_event_data["tokens"] = tokens
 
+        if product_structured:
+            response_event_data["products"] = product_structured
+
 
         response_event = {
             "t": end_time_ms,
@@ -592,7 +769,23 @@ async def query_llm(request: QueryRequest):
         else:
             logger.warning(f"⚠️ Session {request.session_id} not found, only logged to legacy collections")
 
-        return {"response": response_text, "citations": citations}
+        # Return response with optional product_cards
+        response_data = {
+            "response": response_text,
+            "citations": citations
+        }
+
+        if product_cards:
+            response_data["product_cards"] = product_cards
+
+        if product_structured:
+            response_data["product_json"] = product_structured
+
+        if intent_info:
+            response_data["intent"] = intent_info.get("intent")
+            response_data["agents_used"] = intent_info.get("agents_used")
+
+        return response_data
 
     except requests.exceptions.RequestException as e:
         logger.error(f"API request failed: {e}")
@@ -652,6 +845,49 @@ async def log_event(request: LogEventRequest):
     logger.info(f"📦 Event logged: {request.event_type} for user {request.user_id}")
 
     return {"status": "success", "message": "Event logged successfully"}
+
+
+# ==== PRODUCT SEARCH ENDPOINT ====
+@app.get("/search/products")
+async def search_products(query: str, max_results: int = 10):
+    """
+    Search products in the products collection.
+
+    Args:
+        query: Search query string
+        max_results: Maximum number of results to return (default: 10)
+
+    Returns:
+        List of product cards
+    """
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+
+    if product_agent is None:
+        raise HTTPException(status_code=503, detail="Product agent not initialized")
+
+    try:
+        logger.info(f"🛍️ Searching products: {query}")
+
+        # Use ProductAgent to search
+        result = await product_agent.run({
+            "query": query,
+            "max_results": max_results
+        })
+
+        products = result["output"].get("products", [])
+
+        logger.info(f"Found {len(products)} products")
+
+        return {
+            "products": products,
+            "total": len(products),
+            "query": query
+        }
+
+    except Exception as e:
+        logger.error(f"Error searching products: {e}")
+        raise HTTPException(status_code=500, detail=f"Error searching products: {str(e)}")
 
 
 # ==== SESSION-BASED ENDPOINTS ====

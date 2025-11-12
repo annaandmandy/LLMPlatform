@@ -95,7 +95,7 @@ source venv/bin/activate
 
 **On Windows:**
 ```bash
-python -m venv venv
+/opt/homebrew/bin/python3 -m venv venv 
 venv\Scripts\activate
 ```
 
@@ -132,6 +132,8 @@ OPENAI_API_KEY=sk-proj-xxxxxxxxxxxxxxxx
 
 ```bash
 uvicorn main:app --reload
+venv/bin/uvicorn main:app --reload
+
 ```
 
 You should see:

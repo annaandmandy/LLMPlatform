@@ -1,22 +1,44 @@
 "use client";
 
 import { useState } from "react";
+import Clarity from "@microsoft/clarity";
 
 interface Citation {
   title: string;
   url: string;
 }
 
+interface ProductCardData {
+  title: string;
+  description?: string;
+  price?: string;
+  rating?: number;
+  reviews_count?: number;
+  image?: string;
+  url: string;
+  seller?: string;
+  tag?: string;
+  delivery?: string;
+}
+
+interface Message {
+  role: "user" | "assistant";
+  content: string;
+  citations?: Citation[];
+  product_cards?: ProductCardData[];
+}
+
 interface QueryBoxProps {
   query: string;
   setQuery: (query: string) => void;
-  addMessage: (role: "user" | "assistant", content: string, citations?: Citation[]) => void;
+  addMessage: (role: "user" | "assistant", content: string, citations?: Citation[], product_cards?: ProductCardData[]) => void;
   userId: string;
   sessionId: string;
   isLoading: boolean;
   setIsLoading: (loading: boolean) => void;
   selectedModel: string;
   setSelectedModel: (model: string) => void;
+  messages?: Message[];  // NEW: For conversation history
 }
 
 // ✅ Expanded models with provider info (and web-search enabled)
@@ -41,6 +63,7 @@ export default function QueryBox({
   setIsLoading,
   selectedModel,
   setSelectedModel,
+  messages = [],  // Default to empty array
 }: QueryBoxProps) {
   const [error, setError] = useState("");
   const [showModelSelector, setShowModelSelector] = useState(false);
@@ -65,12 +88,25 @@ export default function QueryBox({
     addMessage("user", userQuery);
     setQuery("");
 
+    // set up clarity tag
+    const currentModel = AVAILABLE_MODELS.find((m) => m.id === selectedModel) || AVAILABLE_MODELS[0];
+    const modelProvider = currentModel?.provider || "openai";
+    try {
+      Clarity.setTag("selected_model", currentModel.id);
+      Clarity.setTag("selected_model_name", currentModel.name);
+      Clarity.setTag("selected_model_provider", modelProvider);
+    } catch (err) {
+      console.warn("Clarity tagging failed:", err);
+    }
+
     try {
       const backendUrl = (process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000").replace(/\/$/, "");
 
-      // ✅ find provider based on selected model
-      const currentModel = AVAILABLE_MODELS.find((m) => m.id === selectedModel) || { id: "gpt-4o-mini-search-preview", name: "GPT-4o Mini", provider: "openai" };
-      const modelProvider = currentModel?.provider || "openrouter";
+      // Prepare conversation history (last 10 messages)
+      const history = messages.slice(-10).map(msg => ({
+        role: msg.role,
+        content: msg.content
+      }));
 
       const res = await fetch(`${backendUrl}/query`, {
         method: "POST",
@@ -82,13 +118,14 @@ export default function QueryBox({
           model_name: currentModel.id,
           model_provider: modelProvider,
           web_search: true, // ✅ always enable web search
+          history: history,  // NEW: Send conversation history
         }),
       });
 
       if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
 
       const data = await res.json();
-      addMessage("assistant", data.response, data.citations);
+      addMessage("assistant", data.response, data.citations, data.product_cards);
 
       // ✅ log browsing event
       await fetch(`${backendUrl}/log_event`, {

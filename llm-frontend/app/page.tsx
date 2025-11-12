@@ -15,11 +15,25 @@ interface Citation {
   url: string;
 }
 
+interface ProductCardData {
+  title: string;
+  description?: string;
+  price?: string;
+  rating?: number;
+  reviews_count?: number;
+  image?: string;
+  url: string;
+  seller?: string;
+  tag?: string;
+  delivery?: string;
+}
+
 interface Message {
   role: "user" | "assistant";
   content: string;
   timestamp: Date;
   citations?: Citation[];
+  product_cards?: ProductCardData[];
 }
 
 interface ChatSession {
@@ -193,8 +207,8 @@ export default function Home() {
     loadSession(sId);
   };
 
-  const addMessage = (role: "user" | "assistant", content: string, citations?: Citation[]) => {
-    setMessages((prev) => [...prev, { role, content, citations, timestamp: new Date() }]);
+  const addMessage = (role: "user" | "assistant", content: string, citations?: Citation[], product_cards?: ProductCardData[]) => {
+    setMessages((prev) => [...prev, { role, content, citations, product_cards, timestamp: new Date() }]);
   };
 
   const handleAcceptTerms = () => {
@@ -280,6 +294,7 @@ export default function Home() {
                   setIsLoading={setIsLoading}
                   selectedModel={selectedModel}
                   setSelectedModel={setSelectedModel}
+                  messages={messages}
                 />
               </div>
             </div>
@@ -321,6 +336,7 @@ export default function Home() {
                   setIsLoading={setIsLoading}
                   selectedModel={selectedModel}
                   setSelectedModel={setSelectedModel}
+                  messages={messages}
                 />
               </div>
             </div>
