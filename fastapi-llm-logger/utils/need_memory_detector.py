@@ -84,11 +84,13 @@ class NeedMemoryDetector:
         previous_doc = await self._get_last_query(session_id)
         previous_intent = previous_doc.get("intent") if previous_doc else None
         previous_product = self._extract_primary_product(previous_doc)
+        previous_topic = self._extract_product_topic(previous_doc)
         if previous_doc:
             logger.info(
-                "NeedMemoryDetector: previous intent=%s product=%s",
+                "NeedMemoryDetector: previous intent=%s product=%s category=%s",
                 previous_intent,
                 previous_product,
+                previous_topic,
             )
 
         if keyword_hit:
@@ -101,9 +103,12 @@ class NeedMemoryDetector:
             ):
                 intent = "product_search"
                 reason = "intent_override"
-                if previous_product:
-                    full_query = f"{previous_product} {query}"
-                    logger.info("NeedMemoryDetector: reconstructed query -> %s", full_query)
+                full_query = self._build_reconstructed_query(
+                    follow_up=query,
+                    product_name=None,
+                    topic=previous_topic,
+                )
+                logger.info("NeedMemoryDetector: reconstructed query -> %s", full_query)
 
         if not need_memory:
             sim_reason = await self._embedding_similarity_needed(history, query)
@@ -164,6 +169,50 @@ class NeedMemoryDetector:
                 return card.get("title") or card.get("name")
 
         return None
+
+    def _extract_product_topic(self, query_doc: Optional[Dict[str, Any]]) -> Optional[str]:
+        """
+        Try to recover the broader product category or topic from structured cards
+        or fall back to the original user query.
+        """
+        if not query_doc:
+            return None
+
+        structured = query_doc.get("product_structured") or []
+        if isinstance(structured, list):
+            for item in structured:
+                if isinstance(item, dict):
+                    category = item.get("category") or item.get("type")
+                    if category:
+                        return category
+
+        cards = query_doc.get("product_cards") or []
+        if isinstance(cards, list):
+            for card in cards:
+                if isinstance(card, dict):
+                    tag = card.get("tag") or card.get("category")
+                    if tag:
+                        return tag
+
+        query_text = (query_doc.get("query") or "").strip()
+        return query_text or None
+
+    def _build_reconstructed_query(
+        self,
+        *,
+        follow_up: str,
+        product_name: Optional[str],
+        topic: Optional[str],
+    ) -> str:
+        parts = []
+        if product_name:
+            parts.append(product_name.strip())
+        if topic:
+            candidate = topic.strip()
+            if candidate and candidate.lower() not in " ".join(parts).lower():
+                parts.append(candidate)
+        parts.append(follow_up.strip())
+        return " ".join(part for part in parts if part)
 
     def _mentions_new_product_name(self, query: str) -> bool:
         return bool(re.search(r"\b[A-Z][a-zA-Z0-9\-]+", query))

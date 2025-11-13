@@ -29,11 +29,10 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PRODUCT_EXTRACTION_MODEL = os.getenv("PRODUCT_EXTRACTION_MODEL", "gpt-4o-mini")
 EXTRACTION_SYSTEM_PROMPT = (
     "You read a passage and identify up to 5 concrete consumer products or brand models mentioned. "
-    "If the passage suggests a product category (e.g., 'gum', 'snack', 'laptop'), "
-    "append the category after each product name to avoid ambiguity. "
-    "Example: Orbit → Orbit gum, Sony → Sony headphones. "
-    "Return JSON: {\"products\": [\"name1\", \"name2\"]}. "
-    "Ignore URLs, publishers, articles, or generic categories."
+    "For each product, also infer the general product category (e.g., water bottle, running shoes, travel pillow). "
+    "Return JSON: {\"products\": [{\"name\": \"Hydro Flask Standard Mouth\", \"category\": \"water bottle\"}, ...]}. "
+    "If the category is unclear, use a short descriptive noun phrase such as 'fitness tracker'. "
+    "Ignore URLs, publishers, or abstract ideas."
 )
 EXTRACTION_USER_TEMPLATE = "Passage:\n\"\"\"{text}\"\"\"\nReturn only JSON."
 
@@ -90,24 +89,36 @@ class ProductAgent(BaseAgent):
 
         try:
             text_to_analyze = llm_response if llm_response else query
-            product_mentions = await self._extract_products_with_llm(text_to_analyze)
+            structured_mentions = await self._extract_products_with_llm(text_to_analyze)
 
-            if not product_mentions:
-                product_mentions = self._extract_product_mentions(text_to_analyze)
+            if not structured_mentions:
+                fallback_mentions = self._extract_product_mentions(text_to_analyze)
+                structured_mentions = [
+                    {"name": mention, "category": None}
+                    for mention in fallback_mentions
+                ]
 
-            if not product_mentions:
+            if not structured_mentions:
                 logger.info("No product mentions found")
                 return {
                     "products": [],
-                    "extracted_mentions": []
+                    "extracted_mentions": [],
+                    "structured_products": []
                 }
 
-            logger.info(f"Extracted {len(product_mentions)} product mentions: {product_mentions}")
+            logger.info(
+                f"Extracted {len(structured_mentions)} product mentions: {structured_mentions}"
+            )
 
             # Search for real products for each mention
             all_products = []
-            for mention in product_mentions[:3]:  # Limit to top 3 mentions
-                products = await self._search_real_products(mention, max_results=max_results)
+            extracted_names = [mention["name"] for mention in structured_mentions]
+            for mention in structured_mentions[:3]:  # Limit to top 3 mentions
+                search_term = mention["name"]
+                if mention.get("category"):
+                    search_term = f"{search_term} {mention['category']}".strip()
+
+                products = await self._search_real_products(search_term, max_results=max_results)
                 all_products.extend(products)
 
             # Limit total products returned
@@ -117,7 +128,8 @@ class ProductAgent(BaseAgent):
 
             return {
                 "products": all_products,
-                "extracted_mentions": product_mentions,
+                "extracted_mentions": extracted_names,
+                "structured_products": structured_mentions,
             }
 
         except Exception as e:
@@ -125,6 +137,7 @@ class ProductAgent(BaseAgent):
             return {
                 "products": [],
                 "extracted_mentions": [],
+                "structured_products": [],
                 "error": str(e)
             }
 
@@ -219,7 +232,7 @@ class ProductAgent(BaseAgent):
             logger.error(f"Error searching for product '{product_name}': {str(e)}")
             return []
 
-    async def _extract_products_with_llm(self, text: str) -> List[str]:
+    async def _extract_products_with_llm(self, text: str) -> List[Dict[str, Optional[str]]]:
         if not text or not OPENAI_API_KEY:
             return []
 
@@ -244,12 +257,36 @@ class ProductAgent(BaseAgent):
                 return []
 
             data = json.loads(content)
-            products = data.get("products", [])
-            cleaned = [
-                p.strip() for p in products
-                if isinstance(p, str) and self._is_probable_product_name(p)
-            ]
-            return cleaned[:5]
+            raw_products = data.get("products", [])
+            structured: List[Dict[str, Optional[str]]] = []
+
+            for item in raw_products:
+                name = None
+                category = None
+                if isinstance(item, dict):
+                    name = item.get("name") or item.get("product") or item.get("title")
+                    category = item.get("category") or item.get("type")
+                elif isinstance(item, str):
+                    name = item
+
+                if not name or not self._is_probable_product_name(name):
+                    continue
+
+                structured.append({
+                    "name": name.strip(),
+                    "category": category.strip() if isinstance(category, str) else None
+                })
+
+            deduped: List[Dict[str, Optional[str]]] = []
+            seen = set()
+            for entry in structured:
+                key = (entry["name"].lower(), (entry.get("category") or "").lower())
+                if key in seen:
+                    continue
+                seen.add(key)
+                deduped.append(entry)
+
+            return deduped[:5]
         except Exception as e:
             logger.warning(f"LLM-based product extraction failed: {e}")
             return []
