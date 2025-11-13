@@ -5,17 +5,25 @@ Detects user intent from query text using keyword-based rules with optional LLM 
 """
 
 import re
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import logging
 import os
-import requests
 import json
-import asyncio
+import numpy as np
+from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
-# OpenRouter configuration
+# API configuration
 OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+# Central place to view/update supported intents
+INTENT_DEFINITIONS: Dict[str, str] = {
+    "general": "User is asking a general question, chatting, or making a non-product request.",
+    "product_search": "User wants to search or find a product, brand, or item to buy or compare."
+}
+INTENT_LIST = list(INTENT_DEFINITIONS.keys())
 
 
 class IntentClassifier:
@@ -23,8 +31,7 @@ class IntentClassifier:
     Classifies user queries into intent categories.
 
     Intents:
-    - product_search: Looking for products to buy
-    - general: Everything else
+        - Entries in INTENT_LIST (e.g., ["general", "product_search"])
     """
 
     def __init__(self, keyword_file: str = "intent_keywords.json"):
@@ -44,6 +51,12 @@ class IntentClassifier:
         ]
 
         logger.info(f"✅ IntentClassifier initialized from {self.keyword_file}")
+
+        # Embedding-based intent descriptions pulled from shared map (lazy embedding computation)
+        self.intent_descriptions = INTENT_DEFINITIONS.copy()
+        self.intent_embeddings: Optional[Dict[str, List[float]]] = None
+        self.embedding_model = os.getenv("INTENT_EMBEDDING_MODEL", "text-embedding-3-small")
+        self._openai_client: Optional[OpenAI] = None
 
     def classify(self, query: str, use_llm: bool = False) -> Dict[str, Any]:
         """
@@ -94,87 +107,77 @@ class IntentClassifier:
                 matches += 1
         return matches
 
+    def _ensure_openai_client(self):
+        if self._openai_client is None:
+            if not OPENAI_API_KEY:
+                raise RuntimeError("OPENAI_API_KEY not configured")
+            self._openai_client = OpenAI(api_key=OPENAI_API_KEY)
+
+    def _get_embedding(self, text: str) -> List[float]:
+        self._ensure_openai_client()
+        response = self._openai_client.embeddings.create(
+            model=self.embedding_model,
+            input=text
+        )
+        return response.data[0].embedding
+
+    def _ensure_intent_embeddings(self):
+        if self.intent_embeddings is None:
+            logger.info("Precomputing intent embeddings for classifier")
+            self.intent_embeddings = {
+                intent: self._get_embedding(description)
+                for intent, description in self.intent_descriptions.items()
+            }
+
+    @staticmethod
+    def _cosine_similarity(vec_a: List[float], vec_b: List[float]) -> float:
+        a = np.array(vec_a)
+        b = np.array(vec_b)
+        denom = np.linalg.norm(a) * np.linalg.norm(b)
+        if denom == 0:
+            return 0.0
+        return float(np.dot(a, b) / denom)
+
     async def classify_with_llm(self, query: str) -> Dict[str, Any]:
         """
-        Use LLM to classify intent (more accurate but slower).
+        Use OpenAI embeddings to classify intent via semantic similarity.
 
         Args:
             query: User query text
 
         Returns:
-            Dictionary with intent and confidence
+            Dictionary with intent, confidence, and per-intent scores
         """
-        if not OPENROUTER_KEY:
-            logger.warning("OPENROUTER_API_KEY not configured, falling back to keyword-based classification")
+        if not OPENAI_API_KEY:
+            logger.warning("OPENAI_API_KEY not configured, falling back to keyword-based classification")
             return self.classify(query, use_llm=False)
 
+        query = (query or "").strip()
+        if not query:
+            return {"intent": "general", "confidence": 0.5, "matched_patterns": 0}
+
         try:
-            headers = {
-                "Authorization": f"Bearer {OPENROUTER_KEY}",
-                "Content-Type": "application/json",
+            self._ensure_intent_embeddings()
+            query_embedding = self._get_embedding(query)
+
+            scores = {
+                intent: self._cosine_similarity(query_embedding, emb)
+                for intent, emb in (self.intent_embeddings or {}).items()
             }
 
-            payload = {
-                "model": "microsoft/phi-3-mini-128k-instruct",
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are an intent classification system. Classify user queries into one of these intents:\n\n"
-                            "1. product_search: User wants to find, buy, compare, or get recommendations for products/items.\n"
-                            "2. general: Everything else (chatting, explanations, non-product requests).\n\n"
-                            "IMPORTANT: If the query mentions specific products, rankings (\"top 3\", \"best\"), or requests recommendations, classify as product_search.\n\n"
-                            "Respond ONLY with valid JSON:\n"
-                            '{"intent": "product_search", "confidence": 0.95, "reasoning": "brief explanation"}'
-                        )
-                    },
-                    {"role": "user", "content": query}
-                ],
-                "response_format": {"type": "json_object"},
+            best_intent = max(scores, key=scores.get)
+            best_score = scores[best_intent]
+            confidence = max(0.0, min(1.0, (best_score + 1) / 2))
+
+            return {
+                "intent": best_intent,
+                "confidence": round(confidence, 3),
+                "matched_patterns": 0,
+                "all_scores": {k: round(v, 3) for k, v in scores.items()},
+                "method": "embedding"
             }
-
-            response = await asyncio.to_thread(
-                requests.post,
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers=headers,
-                json=payload,
-                timeout=5
-            )
-
-            if response.status_code == 200:
-                data = response.json()
-                content = data["choices"][0]["message"]["content"]
-
-                # Parse JSON response
-                result = json.loads(content)
-
-                intent = result.get("intent", "general")
-                confidence = result.get("confidence", 0.5)
-                reasoning = result.get("reasoning", "")
-
-                # Validate intent
-                valid_intents = ["product_search", "general"]
-                if intent not in valid_intents:
-                    logger.warning(f"Invalid intent '{intent}' from LLM, defaulting to 'general'")
-                    intent = "general"
-
-                logger.info(f"LLM classified as '{intent}' (confidence: {confidence:.2f}) - {reasoning}")
-
-                return {
-                    "intent": intent,
-                    "confidence": float(confidence),
-                    "matched_patterns": 0,
-                    "reasoning": reasoning,
-                    "method": "llm"
-                }
-            else:
-                logger.error(f"OpenRouter API error: {response.status_code}")
-                # Fallback to keyword-based
-                return self.classify(query, use_llm=False)
-
         except Exception as e:
-            logger.error(f"Error in LLM classification: {str(e)}")
-            # Fallback to keyword-based
+            logger.error(f"Error in embedding-based intent classification: {str(e)}")
             return self.classify(query, use_llm=False)
 
 
@@ -203,6 +206,7 @@ async def detect_intent(query: str, use_llm: Optional[bool] = None) -> Dict[str,
     should_use_llm = USE_LLM_INTENT if use_llm is None else use_llm
 
     if should_use_llm:
+        logger.info(f"used llm")
         result = await _classifier.classify_with_llm(query)
     else:
         result = _classifier.classify(query, use_llm=False)

@@ -675,7 +675,7 @@ async def query_llm(request: QueryRequest):
             # Fallback to direct LLM call
             logger.info("⚠️ Multi-agent system unavailable, using direct LLM call")
 
-            intent_result = await detect_intent(request.query, use_llm=False)
+            intent_result = await detect_intent(request.query, use_llm=True)
             system_prompt = DEFAULT_SYSTEM_PROMPT
             intent_info = intent_result
 

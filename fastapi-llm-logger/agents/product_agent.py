@@ -28,7 +28,10 @@ SERPAPI_KEY = os.getenv("SERPAPI_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PRODUCT_EXTRACTION_MODEL = os.getenv("PRODUCT_EXTRACTION_MODEL", "gpt-4o-mini")
 EXTRACTION_SYSTEM_PROMPT = (
-    "You read a passage and list up to 5 concrete consumer products or brand models mentioned. "
+    "You read a passage and identify up to 5 concrete consumer products or brand models mentioned. "
+    "If the passage suggests a product category (e.g., 'gum', 'snack', 'laptop'), "
+    "append the category after each product name to avoid ambiguity. "
+    "Example: Orbit → Orbit gum, Sony → Sony headphones. "
     "Return JSON: {\"products\": [\"name1\", \"name2\"]}. "
     "Ignore URLs, publishers, articles, or generic categories."
 )

@@ -79,7 +79,7 @@ class CoordinatorAgent(BaseAgent):
         logger.info(f"Processing query: {query[:100]}...")
 
         # Step 1: Detect intent
-        intent_result = await detect_intent(query, use_llm=False)
+        intent_result = await detect_intent(query, use_llm=True)
         intent = intent_result["intent"]
         confidence = intent_result["confidence"]
 
