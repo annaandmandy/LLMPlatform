@@ -38,7 +38,7 @@ interface QueryBoxProps {
   setIsLoading: (loading: boolean) => void;
   selectedModel: string;
   setSelectedModel: (model: string) => void;
-  messages?: Message[];  // NEW: For conversation history
+  messages?: Message[];
 }
 
 // ✅ Expanded models with provider info (and web-search enabled)
@@ -63,7 +63,7 @@ export default function QueryBox({
   setIsLoading,
   selectedModel,
   setSelectedModel,
-  messages = [],  // Default to empty array
+  messages = [],
 }: QueryBoxProps) {
   const [error, setError] = useState("");
   const [showModelSelector, setShowModelSelector] = useState(false);
@@ -102,12 +102,6 @@ export default function QueryBox({
     try {
       const backendUrl = (process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000").replace(/\/$/, "");
 
-      // Prepare conversation history (last 10 messages)
-      const history = messages.slice(-10).map(msg => ({
-        role: msg.role,
-        content: msg.content
-      }));
-
       const res = await fetch(`${backendUrl}/query`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -118,7 +112,6 @@ export default function QueryBox({
           model_name: currentModel.id,
           model_provider: modelProvider,
           web_search: true, // ✅ always enable web search
-          history: history,  // NEW: Send conversation history
         }),
       });
 

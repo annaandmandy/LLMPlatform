@@ -23,6 +23,8 @@ from openai import OpenAI
 import anthropic
 from google import genai
 from google.genai import types
+from utils.intent_classifier import detect_intent
+from utils.need_memory_detector import NeedMemoryDetector
 
 # ==== ENV + LOGGING ====
 load_dotenv()
@@ -74,6 +76,8 @@ try:
 except Exception as e:
     logger.error(f"❌ MongoDB connection failed: {e}")
     db = None
+
+need_memory_detector = NeedMemoryDetector(db=db) if db is not None else None
 
 
 # ==== API KEYS ====
@@ -206,7 +210,6 @@ class SessionEndRequest(AppBaseModel):
 # ==== MULTI-AGENT SYSTEM INITIALIZATION ====
 from agents import CoordinatorAgent, MemoryAgent, ProductAgent, WriterAgent
 from agents.writer_agent import DEFAULT_SYSTEM_PROMPT
-from utils.intent_classifier import detect_intent
 
 # Initialize agents
 coordinator_agent = None
@@ -617,17 +620,48 @@ async def query_llm(request: QueryRequest):
         product_structured = None
         intent_info = None
 
+        history_messages = [
+            {"role": msg.role, "content": msg.content}
+            for msg in request.history
+        ] if request.history else []
+        history_count = len(history_messages)
+
+        intent_detection = await detect_intent(request.query, use_llm=False)
+
+        processed_query = request.query
+        history_for_agents = history_messages if need_memory_detector is None else []
+        memory_metadata = None
+
+        if need_memory_detector:
+            memory_metadata = await need_memory_detector.analyze(
+                query=request.query,
+                session_id=request.session_id,
+                history=history_messages,
+                base_intent=intent_detection.get("intent")
+            )
+
+            if memory_metadata:
+                processed_query = memory_metadata.get("full_query", processed_query)
+                intent_detection["intent"] = memory_metadata.get("intent", intent_detection.get("intent"))
+                if memory_metadata.get("need_memory"):
+                    history_for_agents = memory_metadata.get("history_window", history_messages[-6:])
+                else:
+                    history_for_agents = []
+
+        intent_info = intent_detection
+
         # Try using multi-agent system first
         if coordinator_agent is not None:
             logger.info("🤖 Using multi-agent system")
 
             # Prepare request for coordinator
             agent_request = {
-                "query": request.query,
+                "query": processed_query,
                 "session_id": request.session_id,
                 "user_id": request.user_id,
                 "model": model,
-                "history": [{"role": msg.role, "content": msg.content} for msg in request.history] if request.history else []
+                "history": history_for_agents,
+                "forced_intent_result": intent_detection
             }
 
             # Run through multi-agent system
@@ -656,14 +690,14 @@ async def query_llm(request: QueryRequest):
                         session_id=request.session_id,
                         role="user",
                         content=request.query,
-                        message_index=len(request.history) if request.history else 0
+                        message_index=history_count if history_count else 0
                     )
                     # Store assistant response embedding
                     await memory_agent.store_message_embedding(
                         session_id=request.session_id,
                         role="assistant",
                         content=response_text,
-                        message_index=len(request.history) + 1 if request.history else 1
+                        message_index=history_count + 1 if history_count else 1
                     )
                 except Exception as e:
                     logger.warning(f"Failed to store embeddings: {e}")
@@ -675,18 +709,29 @@ async def query_llm(request: QueryRequest):
             # Fallback to direct LLM call
             logger.info("⚠️ Multi-agent system unavailable, using direct LLM call")
 
-            intent_result = await detect_intent(request.query, use_llm=True)
             system_prompt = DEFAULT_SYSTEM_PROMPT
-            intent_info = intent_result
+            intent_info = intent_detection
+
+            llm_input = processed_query
+            if history_for_agents:
+                history_text = "\n".join(
+                    f"{msg['role'].capitalize()}: {msg['content']}"
+                    for msg in history_for_agents
+                )
+                llm_input = (
+                    "Recent context:\n"
+                    f"{history_text}\n\n"
+                    f"Current question: {processed_query}"
+                )
 
             if request.model_provider == "openai":
-                response_text, citations, raw, tokens = call_openai(model, request.query, system_prompt=system_prompt)
+                response_text, citations, raw, tokens = call_openai(model, llm_input, system_prompt=system_prompt)
             elif request.model_provider == "anthropic":
-                response_text, citations, raw, tokens = call_anthropic(model, request.query, system_prompt=system_prompt)
+                response_text, citations, raw, tokens = call_anthropic(model, llm_input, system_prompt=system_prompt)
             elif request.model_provider == "openrouter":
-                response_text, citations, raw, tokens = call_openrouter(model, request.query, system_prompt=system_prompt)
+                response_text, citations, raw, tokens = call_openrouter(model, llm_input, system_prompt=system_prompt)
             elif request.model_provider == "google":
-                response_text, citations, raw, tokens = call_gemini(model, request.query, system_prompt=system_prompt)
+                response_text, citations, raw, tokens = call_gemini(model, llm_input, system_prompt=system_prompt)
             else:
                 raise HTTPException(status_code=400, detail="Invalid model provider")
 
@@ -708,6 +753,16 @@ async def query_llm(request: QueryRequest):
             "tokens": tokens,
             "latency_ms": latency_ms,
         }
+
+        if memory_metadata:
+            query_log["need_memory"] = memory_metadata.get("need_memory")
+            query_log["memory_reason"] = memory_metadata.get("reason")
+            processed = memory_metadata.get("full_query")
+            if processed and processed != request.query:
+                query_log["processed_query"] = processed
+        elif need_memory_detector is None and history_for_agents:
+            query_log["need_memory"] = True
+            query_log["memory_reason"] = "legacy_history"
 
         # Add multi-agent specific fields if available
         if intent_info:
@@ -785,6 +840,10 @@ async def query_llm(request: QueryRequest):
             "response": response_text,
             "citations": citations
         }
+
+        if memory_metadata:
+            response_data["need_memory"] = memory_metadata.get("need_memory")
+            response_data["memory_reason"] = memory_metadata.get("reason")
 
         if product_cards:
             response_data["product_cards"] = product_cards
