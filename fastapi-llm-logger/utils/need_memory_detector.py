@@ -41,13 +41,19 @@ FOLLOWUP_KEYWORDS = [
 class NeedMemoryDetector:
     """Detects whether a query needs contextual memory before LLM invocation."""
 
-    def __init__(self, db=None, similarity_threshold: float = 0.7):
+    def __init__(
+        self,
+        db=None,
+        similarity_threshold: float = 0.7,
+        fallback_pairs: int = 1,
+    ):
         self.db = db
         self.similarity_threshold = similarity_threshold
         if db is not None:
             self.queries_collection = db["queries"]
         else:
             self.queries_collection = None
+        self.fallback_pairs = max(0, fallback_pairs)
 
     async def analyze(
         self,
@@ -119,11 +125,29 @@ class NeedMemoryDetector:
 
         if need_memory:
             history_window = self._build_history_window(history)
+            fallback_pair_added = False
+            if len(history_window) < 2 and self.fallback_pairs and session_id:
+                fallback_history = await self._history_from_previous_pairs(
+                    session_id=session_id,
+                    max_pairs=self.fallback_pairs,
+                )
+                if fallback_history:
+                    history_window = (history_window + fallback_history)[-6:]
+                    fallback_pair_added = True
+
             logger.info(
-                "NeedMemoryDetector: returning %d history messages (reason=%s)",
+                "NeedMemoryDetector: returning %d history messages (reason=%s%s)",
                 len(history_window),
                 reason,
+                ", fallback_pair" if fallback_pair_added else "",
             )
+            for idx, message in enumerate(history_window, start=1):
+                logger.info(
+                    "NeedMemoryDetector history[%d] %s: %s",
+                    idx,
+                    message.get("role"),
+                    message.get("content", "")[:200],
+                )
         else:
             logger.info("NeedMemoryDetector: no additional context needed")
 
@@ -249,3 +273,39 @@ class NeedMemoryDetector:
             window = window[1:]
 
         return window[-6:]
+
+    async def _history_from_previous_pairs(
+        self,
+        *,
+        session_id: Optional[str],
+        max_pairs: int,
+    ) -> List[Dict[str, str]]:
+        if self.queries_collection is None or not session_id or max_pairs <= 0:
+            return []
+
+        limit = max_pairs
+
+        def _fetch_recent():
+            cursor = self.queries_collection.find(
+                {"session_id": session_id},
+                sort=[("timestamp", -1)],
+                limit=limit,
+            )
+            return list(cursor)
+
+        try:
+            docs = await asyncio.to_thread(_fetch_recent)
+        except Exception as exc:
+            logger.warning(f"NeedMemoryDetector: failed to load fallback history: {exc}")
+            return []
+
+        history: List[Dict[str, str]] = []
+        for doc in reversed(docs):
+            user_query = (doc.get("query") or "").strip()
+            assistant_response = (doc.get("response") or "").strip()
+            if not user_query or not assistant_response:
+                continue
+            history.append({"role": "user", "content": user_query})
+            history.append({"role": "assistant", "content": assistant_response})
+
+        return history
