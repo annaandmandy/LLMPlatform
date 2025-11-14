@@ -57,6 +57,8 @@ class ProductAgent(BaseAgent):
         """
         super().__init__(name="ProductAgent", db=db)
         self._openai_client: Optional[OpenAI] = None
+        self.max_product_mentions = 3
+        self.max_serp_results = 3
 
         # Common product keywords that indicate a product mention
         self.product_indicators = [
@@ -84,7 +86,7 @@ class ProductAgent(BaseAgent):
         """
         query = request.get("query", "")
         llm_response = request.get("llm_response", "")
-        max_results = request.get("max_results", 3)
+        max_results = request.get("max_results", self.max_serp_results)
         logger.info("Extracting product mentions from response")
 
         try:
@@ -113,12 +115,16 @@ class ProductAgent(BaseAgent):
             # Search for real products for each mention
             all_products = []
             extracted_names = [mention["name"] for mention in structured_mentions]
-            for mention in structured_mentions[:3]:  # Limit to top 3 mentions
+            mention_limit = request.get("max_mentions", self.max_product_mentions)
+            mention_limit = max(1, mention_limit)
+            serp_results = max(1, max_results)
+
+            for mention in structured_mentions[:mention_limit]:
                 search_term = mention["name"]
                 if mention.get("category"):
                     search_term = f"{search_term} {mention['category']}".strip()
 
-                products = await self._search_real_products(search_term, max_results=max_results)
+                products = await self._search_real_products(search_term, max_results=serp_results)
                 all_products.extend(products)
 
             # Limit total products returned
@@ -172,7 +178,15 @@ class ProductAgent(BaseAgent):
             if mention not in unique_mentions:
                 unique_mentions.append(mention)
 
-        return unique_mentions[:5]  # Limit to top 5 mentions
+        mention_cap = max(1, self.max_product_mentions * 2)
+        return unique_mentions[:mention_cap]
+
+    def configure_limits(self, *, max_mentions: Optional[int] = None, serp_results: Optional[int] = None) -> None:
+        """Update runtime knobs from admin config."""
+        if max_mentions is not None:
+            self.max_product_mentions = max(1, max_mentions)
+        if serp_results is not None:
+            self.max_serp_results = max(1, serp_results)
 
     async def _search_real_products(self, product_name: str, max_results: int = 3) -> List[Dict[str, Any]]:
         """

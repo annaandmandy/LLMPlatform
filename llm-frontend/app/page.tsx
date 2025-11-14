@@ -9,6 +9,7 @@ import TermsModal from "@/components/TermsModal";
 import ClearUserModal from "@/components/ClearUserModal";
 import { useSession } from "@/lib/useSession";
 import { useEventTracking } from "@/lib/useEventTracking";
+import { DEFAULT_MODEL_ID } from "@/config/defaultClientConfig";
 
 interface Citation {
   title: string;
@@ -50,7 +51,7 @@ export default function Home() {
   const [userId, setUserId] = useState("");
   const [sessionId, setSessionId] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedModel, setSelectedModel] = useState("gpt-4o-mini");
+  const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL_ID);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);

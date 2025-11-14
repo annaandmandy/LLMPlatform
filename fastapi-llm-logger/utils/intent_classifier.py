@@ -11,19 +11,12 @@ import os
 import json
 import numpy as np
 from openai import OpenAI
+from .config_manager import get_intent_definitions
 
 logger = logging.getLogger(__name__)
 
 # API configuration
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
-# Central place to view/update supported intents
-INTENT_DEFINITIONS: Dict[str, str] = {
-    "general": "User is asking a general question, chatting, or making a non-product request.",
-    "product_search": "User wants to search or find a product, brand, or item to buy or compare."
-}
-INTENT_LIST = list(INTENT_DEFINITIONS.keys())
-
 
 class IntentClassifier:
     """
@@ -52,7 +45,7 @@ class IntentClassifier:
         logger.info(f"✅ IntentClassifier initialized from {self.keyword_file}")
 
         # Embedding-based intent descriptions pulled from shared map (lazy embedding computation)
-        self.intent_descriptions = INTENT_DEFINITIONS.copy()
+        self.intent_descriptions = get_intent_definitions().copy()
         self.intent_embeddings: Optional[Dict[str, List[float]]] = None
         self.embedding_model = os.getenv("INTENT_EMBEDDING_MODEL", "text-embedding-3-small")
         self._openai_client: Optional[OpenAI] = None
@@ -128,6 +121,11 @@ class IntentClassifier:
                 for intent, description in self.intent_descriptions.items()
             }
 
+    def refresh_intents(self):
+        """Reload intent descriptions from config."""
+        self.intent_descriptions = get_intent_definitions().copy()
+        self.intent_embeddings = None
+
     @staticmethod
     def _cosine_similarity(vec_a: List[float], vec_b: List[float]) -> float:
         a = np.array(vec_a)
@@ -180,11 +178,26 @@ class IntentClassifier:
             return self.classify(query, use_llm=False)
 
 
-# Global classifier instance
-_classifier = IntentClassifier()
+# Global classifier instance (lazy initialization to avoid circular imports)
+_classifier: Optional[IntentClassifier] = None
+
+
+def _get_classifier() -> IntentClassifier:
+    """Get or initialize the global classifier instance."""
+    global _classifier
+    if _classifier is None:
+        _classifier = IntentClassifier()
+    return _classifier
 
 
 USE_LLM_INTENT = os.getenv("USE_LLM_INTENT", "false").lower() in {"true", "1", "yes"}
+
+
+def refresh_intent_config():
+    """Refresh classifier cache when admin config changes."""
+    global _classifier
+    if _classifier is not None:
+        _classifier.refresh_intents()
 
 
 async def detect_intent(query: str, use_llm: Optional[bool] = None) -> Dict[str, Any]:
@@ -202,13 +215,14 @@ async def detect_intent(query: str, use_llm: Optional[bool] = None) -> Dict[str,
         >>> await detect_intent("I want to buy a laptop")
         {'intent': 'product_search', 'confidence': 0.95, 'reasoning': 'User wants product recommendations'}
     """
+    classifier = _get_classifier()
     should_use_llm = USE_LLM_INTENT if use_llm is None else use_llm
 
     if should_use_llm:
         logger.info(f"used llm")
-        result = await _classifier.classify_with_llm(query)
+        result = await classifier.classify_with_llm(query)
     else:
-        result = _classifier.classify(query, use_llm=False)
+        result = classifier.classify(query, use_llm=False)
 
     logger.info(f"Intent detected: {result['intent']} (confidence: {result['confidence']:.2f})")
     return result

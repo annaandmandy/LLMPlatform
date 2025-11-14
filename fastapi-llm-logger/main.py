@@ -23,13 +23,20 @@ from openai import OpenAI
 import anthropic
 from google import genai
 from google.genai import types
-from utils.intent_classifier import detect_intent
+from utils.intent_classifier import detect_intent, refresh_intent_config
 from utils.need_memory_detector import NeedMemoryDetector
+from utils.config_manager import (
+    load_admin_config,
+    get_admin_config,
+    update_admin_config,
+    get_public_config,
+)
 
 # ==== ENV + LOGGING ====
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
 
 # Suppress noisy pydantic warnings from third-party Operation models
 warnings.filterwarnings(
@@ -77,7 +84,18 @@ except Exception as e:
     logger.error(f"❌ MongoDB connection failed: {e}")
     db = None
 
-need_memory_detector = NeedMemoryDetector(db=db) if db is not None else None
+current_admin_config = load_admin_config()
+numeric_settings = current_admin_config["numeric"]
+
+if db is not None:
+    need_memory_detector = NeedMemoryDetector(
+        db=db,
+        similarity_threshold=numeric_settings["memory_similarity_threshold"],
+        fallback_pairs=numeric_settings["history_fallback_pairs"],
+        max_history_messages=numeric_settings["max_history_messages"],
+    )
+else:
+    need_memory_detector = None
 
 
 # ==== API KEYS ====
@@ -114,6 +132,27 @@ class LogEventRequest(AppBaseModel):
     target_url: Optional[str] = None
     page_url: Optional[str] = None
     extra_data: Optional[Dict[str, Any]] = None
+
+
+class ModelConfig(AppBaseModel):
+    id: str
+    name: str
+    provider: str
+
+
+class NumericAdminConfig(AppBaseModel):
+    memory_similarity_threshold: float
+    history_fallback_pairs: int
+    max_history_messages: int
+    product_mentions_limit: int
+    serp_results_per_product: int
+
+
+class AdminConfigPayload(AppBaseModel):
+    intents: Dict[str, str]
+    prompts: Dict[str, str]
+    numeric: NumericAdminConfig
+    available_models: List[ModelConfig]
 
 
 # ==== NEW SESSION-BASED SCHEMAS ====
@@ -207,6 +246,25 @@ class SessionEndRequest(AppBaseModel):
     session_id: str
 
 
+# ==== ADMIN CONFIG API ====
+@app.get("/admin/config")
+def read_admin_config():
+    return get_admin_config()
+
+
+@app.put("/admin/config")
+def overwrite_admin_config(payload: AdminConfigPayload):
+    updated = update_admin_config(payload.model_dump())
+    refresh_intent_config()
+    apply_runtime_admin_config(updated)
+    return updated
+
+
+@app.get("/client-config")
+def read_client_config():
+    return get_public_config()
+
+
 # ==== MULTI-AGENT SYSTEM INITIALIZATION ====
 from agents import CoordinatorAgent, MemoryAgent, ProductAgent, WriterAgent
 from agents.writer_agent import DEFAULT_SYSTEM_PROMPT
@@ -216,6 +274,45 @@ coordinator_agent = None
 memory_agent = None
 product_agent = None
 writer_agent = None
+
+
+def apply_runtime_admin_config(config: Dict[str, Any]):
+    """Push admin configuration values into runtime services."""
+    global current_admin_config
+    current_admin_config = config
+    numeric = config.get("numeric", {})
+    prompts = config.get("prompts", {})
+
+    if need_memory_detector:
+        need_memory_detector.similarity_threshold = numeric.get(
+            "memory_similarity_threshold",
+            getattr(need_memory_detector, "similarity_threshold", 0.7),
+        )
+        need_memory_detector.fallback_pairs = numeric.get(
+            "history_fallback_pairs",
+            getattr(need_memory_detector, "fallback_pairs", 1),
+        )
+        need_memory_detector.max_history_messages = numeric.get(
+            "max_history_messages",
+            getattr(need_memory_detector, "max_history_messages", 6),
+        )
+
+    if product_agent:
+        product_agent.configure_limits(
+            max_mentions=numeric.get("product_mentions_limit"),
+            serp_results=numeric.get("serp_results_per_product"),
+        )
+
+    if writer_agent:
+        intent_prompts = {k: v for k, v in prompts.items() if k != "system"}
+        writer_agent.configure_prompts(
+            system_prompt=prompts.get("system"),
+            intent_prompts=intent_prompts,
+        )
+
+
+apply_runtime_admin_config(current_admin_config)
+
 
 def initialize_agents():
     """Initialize the multi-agent system"""
@@ -245,6 +342,7 @@ def initialize_agents():
 
         # Link agents to coordinator
         coordinator_agent.set_agents(memory_agent, product_agent, writer_agent)
+        apply_runtime_admin_config(current_admin_config)
 
 
         logger.info("✅ Multi-agent system initialized successfully")

@@ -1,0 +1,57 @@
+{
+  "intents": {
+    "general": "User is asking a general question, chatting, or making a non-product request.",
+    "product_search": "User wants to search or find a product, brand, or item to buy or compare.",
+    "news_search": "The user wants to search for recent news papers"
+  },
+  "prompts": {
+    "system": "You are ChatGPT: a concise, markdown-savvy assistant. Use short paragraphs and lists when helpful. Provide citations if possible. Always respond in English.",
+    "general": "Answer the user directly. Be concise but helpful, cite sources if the model furnishes them, and provide clear structure when a list or steps are useful.",
+    "product_search": "You are a helpful AI assistant that uses up-to-date web information to answer product and trend-related questions. Always use the web search tool to confirm or find the most recent data \u2014 such as rankings, release dates, prices, or availability. If relevant information is found, cite the sources clearly in markdown format. Response style: 1) Start with a brief overview, 2) Provide several concrete options or recommendations plus pros/cons, 3) Include actionable tips like pricing, availability windows, or buyer considerations. If no useful recent information is found, rely on general knowledge to answer naturally.",
+    "news_search": "Answer the user directly. Be concise but helpful, cite sources if the model furnishes them, and provide clear structure when a list or steps are useful."
+  },
+  "numeric": {
+    "memory_similarity_threshold": 0.7,
+    "history_fallback_pairs": 1,
+    "max_history_messages": 6,
+    "product_mentions_limit": 3,
+    "serp_results_per_product": 3
+  },
+  "available_models": [
+    {
+      "id": "gpt-4o-mini-search-preview",
+      "name": "GPT-4o mini",
+      "provider": "openai"
+    },
+    {
+      "id": "gpt-4o-search-preview",
+      "name": "GPT-4o",
+      "provider": "openai"
+    },
+    {
+      "id": "gpt-5-search-api",
+      "name": "GPT-5",
+      "provider": "openai"
+    },
+    {
+      "id": "x-ai/grok-3-mini:online",
+      "name": "Grok 3 mini",
+      "provider": "openrouter"
+    },
+    {
+      "id": "perplexity/sonar:online",
+      "name": "Perplexity Sonar",
+      "provider": "openrouter"
+    },
+    {
+      "id": "claude-sonnet-4-5-20250929",
+      "name": "Claude 4.5 Sonnet",
+      "provider": "anthropic"
+    },
+    {
+      "id": "gemini-2.5-flash",
+      "name": "Gemini 2.5 Flash",
+      "provider": "google"
+    }
+  ]
+}

@@ -43,6 +43,8 @@ class WriterAgent(BaseAgent):
         """
         super().__init__(name="WriterAgent", db=db)
         self.llm_functions = llm_functions or {}
+        self.system_prompt = DEFAULT_SYSTEM_PROMPT
+        self.intent_prompts: Dict[str, str] = {}
 
     def set_llm_functions(self, llm_functions: Dict[str, Any]):
         """
@@ -53,6 +55,17 @@ class WriterAgent(BaseAgent):
         """
         self.llm_functions = llm_functions
         logger.info(f"LLM functions configured: {list(llm_functions.keys())}")
+
+    def configure_prompts(self, *, system_prompt: Optional[str] = None, intent_prompts: Optional[Dict[str, str]] = None):
+        """Allow runtime override of system and intent-specific prompts."""
+        if system_prompt:
+            cleaned = system_prompt.strip()
+            if cleaned:
+                self.system_prompt = cleaned
+        if intent_prompts:
+            filtered = {k: v for k, v in intent_prompts.items() if isinstance(v, str) and v.strip()}
+            if filtered:
+                self.intent_prompts = filtered
 
     async def execute(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -106,7 +119,7 @@ class WriterAgent(BaseAgent):
             response_text, citations, raw_response, tokens = llm_function(
                 model,
                 enriched_prompt,
-                system_prompt=DEFAULT_SYSTEM_PROMPT
+                system_prompt=self.system_prompt
             )
 
             logger.info(f"Response generated: {len(response_text)} chars, {len(citations)} citations")
@@ -172,20 +185,11 @@ class WriterAgent(BaseAgent):
                 prompt_parts.append(f"- (Similarity: {similarity:.2f}) {content[:150]}")
             prompt_parts.append("")
 
-        # Add intent-specific instructions
-        if intent == "product_search":
+        # Add intent-specific instructions pulled from config
+        intent_instructions = self.intent_prompts.get(intent)
+        if intent_instructions:
             prompt_parts.append("## Instructions:")
-            prompt_parts.append(
-                "You are a helpful AI assistant that uses up-to-date web information to answer product and trend-related questions. "
-                "Always use the web search tool to confirm or find the most recent data — such as rankings, release dates, prices, or availability. "
-                "If relevant information is found, cite the sources clearly in markdown format.\n\n"
-                "### Response style:\n"
-                "1. Start with a brief summary or overview.\n"
-                "2. Provide 2–4 useful examples, recommendations, or insights based on recent web findings.\n"
-                "3. Include practical context like pros/cons, buying tips, or scenarios.\n\n"
-                "If no useful recent information is found, rely on your own general knowledge to answer naturally."
-                "Always use English to response."
-            )
+            prompt_parts.append(intent_instructions.strip())
             prompt_parts.append("")
 
         # Add the user query

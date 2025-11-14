@@ -46,6 +46,7 @@ class NeedMemoryDetector:
         db=None,
         similarity_threshold: float = 0.7,
         fallback_pairs: int = 1,
+        max_history_messages: int = 6,
     ):
         self.db = db
         self.similarity_threshold = similarity_threshold
@@ -54,6 +55,7 @@ class NeedMemoryDetector:
         else:
             self.queries_collection = None
         self.fallback_pairs = max(0, fallback_pairs)
+        self.max_history_messages = max(2, max_history_messages)
 
     async def analyze(
         self,
@@ -264,7 +266,8 @@ class NeedMemoryDetector:
         if not trimmed:
             return []
 
-        window = trimmed[-6:]
+        limit = max(2, self.max_history_messages)
+        window = trimmed[-limit:]
         if len(window) < 2:
             return window
 
@@ -272,7 +275,7 @@ class NeedMemoryDetector:
         if window[0].get("role") != "user" and len(window) > 2:
             window = window[1:]
 
-        return window[-6:]
+        return window[-limit:]
 
     async def _history_from_previous_pairs(
         self,

@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Clarity from "@microsoft/clarity";
+import { DEFAULT_MODELS, ClientModelConfig } from "@/config/defaultClientConfig";
 
 interface Citation {
   title: string;
@@ -41,17 +42,7 @@ interface QueryBoxProps {
   messages?: Message[];
 }
 
-// ✅ Expanded models with provider info (and web-search enabled)
-const AVAILABLE_MODELS = [
-  { id: "gpt-4o-mini-search-preview", name: "GPT-4o mini", provider: "openai" },
-  { id: "gpt-4o-search-preview", name: "GPT-4o", provider: "openai" },
-  { id: "gpt-5-search-api", name: "GPT-5", provider: "openai" },
-  { id: "x-ai/grok-3-mini:online", name: "Grok 3 mini", provider: "openrouter" },
-  { id: "perplexity/sonar:online", name: "Perplexity Sonar", provider: "openrouter" },
-  { id: "claude-sonnet-4-5-20250929", name: "Claude 4.5 Sonnet", provider: "anthropic" },
-  { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash", provider: "google" },
-
-];
+const FALLBACK_MODELS = DEFAULT_MODELS;
 
 export default function QueryBox({
   query,
@@ -67,6 +58,41 @@ export default function QueryBox({
 }: QueryBoxProps) {
   const [error, setError] = useState("");
   const [showModelSelector, setShowModelSelector] = useState(false);
+  const [availableModels, setAvailableModels] = useState<ClientModelConfig[]>(FALLBACK_MODELS);
+
+  useEffect(() => {
+    const fetchConfig = async () => {
+      try {
+        const backendUrl = (process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000").replace(/\/$/, "");
+        const res = await fetch(`${backendUrl}/client-config`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (Array.isArray(data.available_models) && data.available_models.length > 0) {
+          const sanitized = data.available_models
+            .map((model: any) => {
+              const id = typeof model.id === "string" ? model.id : "";
+              const name = typeof model.name === "string" ? model.name : "";
+              const provider = typeof model.provider === "string" ? model.provider : "";
+              if (!id || !name || !provider) return null;
+              return { id, name, provider };
+            })
+            .filter(Boolean) as ClientModelConfig[];
+          if (sanitized.length > 0) {
+            setAvailableModels(sanitized);
+          }
+        }
+      } catch (err) {
+        console.warn("Failed to load backend config:", err);
+      }
+    };
+    fetchConfig();
+  }, []);
+
+  useEffect(() => {
+    if (!availableModels.find((m) => m.id === selectedModel) && availableModels.length > 0) {
+      setSelectedModel(availableModels[0].id);
+    }
+  }, [availableModels, selectedModel, setSelectedModel]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -89,7 +115,7 @@ export default function QueryBox({
     setQuery("");
 
     // set up clarity tag
-    const currentModel = AVAILABLE_MODELS.find((m) => m.id === selectedModel) || AVAILABLE_MODELS[0];
+    const currentModel = availableModels.find((m) => m.id === selectedModel) || availableModels[0];
     const modelProvider = currentModel?.provider || "openai";
     try {
       Clarity.setTag("selected_model", currentModel.id);
@@ -140,7 +166,7 @@ export default function QueryBox({
     }
   };
 
-  const currentModel = AVAILABLE_MODELS.find((m) => m.id === selectedModel) || AVAILABLE_MODELS[0];
+  const currentModel = availableModels.find((m) => m.id === selectedModel) || availableModels[0];
 
   return (
     <div className="w-full">
@@ -173,7 +199,7 @@ export default function QueryBox({
             {showModelSelector && (
             <div className="absolute right-0 bottom-full mb-2 w-64 bg-white rounded-lg shadow-xl border border-gray-200 z-10 max-h-80 overflow-y-auto">
               <div className="p-2">
-                {AVAILABLE_MODELS.map((model) => (
+                {availableModels.map((model) => (
                   <button
                     key={model.id}
                     type="button"
