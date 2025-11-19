@@ -26,7 +26,7 @@ export function useSession({
   userId,
   sessionId: providedSessionId,
   modelGroup,
-  experimentId = 'default',
+  experimentId,
   location,
   locationReady = true,
 }: SessionOptions) {
@@ -35,7 +35,7 @@ export function useSession({
 
   useEffect(() => {
     // Don't create session if we don't have real userId or sessionId yet
-    if (!locationReady) {
+    if (!locationReady || !experimentId) {
       return;
     }
 

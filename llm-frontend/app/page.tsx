@@ -44,6 +44,8 @@ interface ChatSession {
   timestamp: Date;
 }
 
+const DEFAULT_EXPERIMENT_ID = "production_v1";
+
 interface LocationData {
   latitude: number;
   longitude: number;
@@ -55,6 +57,9 @@ export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [userId, setUserId] = useState("");
   const [sessionId, setSessionId] = useState("");
+  const [experimentId, setExperimentId] = useState("");
+  const [showExperimentModal, setShowExperimentModal] = useState(false);
+  const [experimentDraft, setExperimentDraft] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [selectedModel, setSelectedModel] = useState("gpt-4o-mini");
   const [useMemoryFetch, setUseMemoryFetch] = useState(false);
@@ -134,12 +139,26 @@ export default function Home() {
     };
   }, [sessionId]);
 
+  useEffect(() => {
+    if (!sessionId) return;
+    const stored = sessionStorage.getItem(`experiment_id_${sessionId}`);
+    if (stored) {
+      setExperimentId(stored);
+      setExperimentDraft(stored);
+      setShowExperimentModal(false);
+    } else {
+      setExperimentId("");
+      setExperimentDraft("");
+      setShowExperimentModal(true);
+    }
+  }, [sessionId]);
+
   // NEW: Initialize session-based tracking (using the same sessionId as chat)
   useSession({
     userId: userId || "anonymous",
     sessionId: sessionId,  // Use the same sessionId as chat
     modelGroup: selectedModel,
-    experimentId: "production_v1",
+    experimentId: experimentId,
     location,
     locationReady,
   });
@@ -166,6 +185,23 @@ export default function Home() {
       saveCurrentSession();
     }
   }, [messages, sessionId]);
+
+  const persistExperiment = (value: string) => {
+    sessionStorage.setItem(`experiment_id_${sessionId}`, value);
+    setExperimentId(value);
+    setShowExperimentModal(false);
+  };
+
+  const handleExperimentSave = () => {
+    if (!experimentDraft.trim() || !sessionId) return;
+    const value = experimentDraft.trim();
+    persistExperiment(value);
+  };
+
+  const handleExperimentSkip = () => {
+    if (!sessionId) return;
+    persistExperiment(DEFAULT_EXPERIMENT_ID);
+  };
 
   const loadSession = (sId: string) => {
     if (!userId) return;
@@ -243,6 +279,9 @@ export default function Home() {
     sessionStorage.setItem("session_id", newSessionId);
     setMessages([]);
     setQuery("");
+    setExperimentId("");
+    setExperimentDraft("");
+    setShowExperimentModal(true);
   };
 
   const handleSelectSession = (sId: string) => {
@@ -288,6 +327,15 @@ export default function Home() {
 
   return (
     <div className="h-screen flex">
+      {showExperimentModal && (
+        <ExperimentModal
+          value={experimentDraft}
+          onChange={setExperimentDraft}
+          onConfirm={handleExperimentSave}
+          onSkip={handleExperimentSkip}
+        />
+      )}
+
       {/* Terms Modal */}
       <TermsModal
         isOpen={showTermsModal}
@@ -406,6 +454,64 @@ export default function Home() {
 
         <EventTracker userId={userId} sessionId={sessionId} />
       </main>
+    </div>
+  );
+}
+
+function ExperimentModal({
+  value,
+  onChange,
+  onConfirm,
+  onSkip,
+}: {
+  value: string;
+  onChange: (val: string) => void;
+  onConfirm: () => void;
+  onSkip: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      <div className="bg-white rounded-lg shadow-2xl w-full max-w-md p-6 space-y-4">
+        <div>
+          <h2 className="text-xl font-semibold text-gray-800">Set Experiment ID</h2>
+          <p className="text-sm text-gray-600 mt-1">
+            Enter the experiment identifier for this session. This value will be saved with your session logs.
+          </p>
+        </div>
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          placeholder="e.g. marketing_test_a"
+          autoFocus
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && value.trim()) {
+              e.preventDefault();
+              onConfirm();
+            }
+          }}
+        />
+        <div className="flex gap-3">
+          <button
+            type="button"
+            className="w-1/2 py-2 rounded-md font-semibold text-gray-700 border border-gray-300 hover:bg-gray-100 transition-colors"
+            onClick={onSkip}
+          >
+            Skip (use default)
+          </button>
+          <button
+            type="button"
+            disabled={!value.trim()}
+            onClick={onConfirm}
+            className={`w-1/2 py-2 rounded-md font-semibold text-white transition-colors ${
+              value.trim() ? "bg-blue-600 hover:bg-blue-700" : "bg-gray-400 cursor-not-allowed"
+            }`}
+          >
+            Save ID
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
