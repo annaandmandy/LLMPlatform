@@ -38,6 +38,10 @@ interface QueryBoxProps {
   setIsLoading: (loading: boolean) => void;
   selectedModel: string;
   setSelectedModel: (model: string) => void;
+  useMemoryFetch: boolean;
+  setUseMemoryFetch: (value: boolean) => void;
+  useProductSearch: boolean;
+  setUseProductSearch: (value: boolean) => void;
   messages?: Message[];
 }
 
@@ -63,6 +67,10 @@ export default function QueryBox({
   setIsLoading,
   selectedModel,
   setSelectedModel,
+  useMemoryFetch,
+  setUseMemoryFetch,
+  useProductSearch,
+  setUseProductSearch,
   messages = [],
 }: QueryBoxProps) {
   const [error, setError] = useState("");
@@ -80,6 +88,11 @@ export default function QueryBox({
       setError("User session not initialized");
       return;
     }
+
+    const historyPayload =
+      useMemoryFetch && messages.length > 0
+        ? messages.slice(-6).map(({ role, content }) => ({ role, content }))
+        : [];
 
     setIsLoading(true);
     setError("");
@@ -111,7 +124,10 @@ export default function QueryBox({
           query: userQuery,
           model_name: currentModel.id,
           model_provider: modelProvider,
-          web_search: true, // ✅ always enable web search
+          web_search: true, // still pass through for legacy behavior
+          use_memory: useMemoryFetch,
+          use_product_search: useProductSearch,
+          history: historyPayload,
         }),
       });
 
@@ -195,6 +211,45 @@ export default function QueryBox({
             </div>
           )}
 
+          </div>
+        </div>
+
+        {/* Feature Toggles */}
+        <div className="flex flex-wrap gap-6 text-sm text-gray-700">
+          <div className="flex items-center gap-2">
+            <span className="font-medium">Memory context</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={useMemoryFetch}
+              onClick={() => setUseMemoryFetch(!useMemoryFetch)}
+              className={`w-12 h-6 rounded-full px-1 flex items-center transition-colors ${
+                useMemoryFetch ? "bg-blue-600 justify-end" : "bg-gray-300 justify-start"
+              }`}
+            >
+              <span className="w-5 h-5 bg-white rounded-full shadow-md transition-transform"></span>
+            </button>
+            <span className="text-xs text-gray-500">
+              {useMemoryFetch ? "Sending last 3 exchanges" : "Off"}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="font-medium">Product search</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={useProductSearch}
+              onClick={() => setUseProductSearch(!useProductSearch)}
+              className={`w-12 h-6 rounded-full px-1 flex items-center transition-colors ${
+                useProductSearch ? "bg-blue-600 justify-end" : "bg-gray-300 justify-start"
+              }`}
+            >
+              <span className="w-5 h-5 bg-white rounded-full shadow-md transition-transform"></span>
+            </button>
+            <span className="text-xs text-gray-500">
+              {useProductSearch ? "Use Google SERP cards" : "General response"}
+            </span>
           </div>
         </div>
 

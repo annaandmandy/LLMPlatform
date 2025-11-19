@@ -8,7 +8,6 @@ This is the entry point for the multi-agent system.
 from typing import Dict, Any, Optional
 import logging
 from .base_agent import BaseAgent
-from utils.intent_classifier import detect_intent
 
 logger = logging.getLogger(__name__)
 
@@ -80,16 +79,13 @@ class CoordinatorAgent(BaseAgent):
 
         forced_intent_result = request.get("forced_intent_result")
         if forced_intent_result:
-            intent_result = forced_intent_result
-            intent = intent_result.get("intent", "general")
-            confidence = intent_result.get("confidence", 1.0)
+            intent = forced_intent_result.get("intent", "general")
+            confidence = forced_intent_result.get("confidence", 1.0)
         else:
-            # Step 1: Detect intent
-            intent_result = await detect_intent(query, use_llm=True)
-            intent = intent_result["intent"]
-            confidence = intent_result["confidence"]
+            intent = request.get("intent", "general")
+            confidence = request.get("intent_confidence", 1.0)
 
-        logger.info(f"Intent detected: {intent} (confidence: {confidence:.2f})")
+        logger.info(f"Intent selected: {intent} (confidence: {confidence:.2f})")
 
         # Initialize context collectors
         memory_context = None

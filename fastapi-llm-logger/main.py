@@ -23,8 +23,6 @@ from openai import OpenAI
 import anthropic
 from google import genai
 from google.genai import types
-from utils.intent_classifier import detect_intent
-from utils.need_memory_detector import NeedMemoryDetector
 
 # ==== ENV + LOGGING ====
 load_dotenv()
@@ -77,9 +75,6 @@ except Exception as e:
     logger.error(f"❌ MongoDB connection failed: {e}")
     db = None
 
-need_memory_detector = NeedMemoryDetector(db=db) if db is not None else None
-
-
 # ==== API KEYS ====
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
@@ -103,6 +98,8 @@ class QueryRequest(AppBaseModel):
     model_provider: str  # "openai", "anthropic", or "openrouter"
     model_name: Optional[str] = None
     web_search: Optional[bool] = False
+    use_memory: Optional[bool] = False
+    use_product_search: Optional[bool] = False
     history: Optional[List[MessageHistory]] = []  # NEW: Conversation history for multi-agent context
 
 
@@ -626,29 +623,17 @@ async def query_llm(request: QueryRequest):
         ] if request.history else []
         history_count = len(history_messages)
 
-        intent_detection = await detect_intent(request.query, use_llm=False)
+        use_memory = bool(request.use_memory)
+        use_product_search = bool(request.use_product_search)
 
         processed_query = request.query
-        history_for_agents = history_messages if need_memory_detector is None else []
-        memory_metadata = None
+        history_for_agents = history_messages[-6:] if use_memory else []
 
-        if need_memory_detector:
-            memory_metadata = await need_memory_detector.analyze(
-                query=request.query,
-                session_id=request.session_id,
-                history=history_messages,
-                base_intent=intent_detection.get("intent")
-            )
-
-            if memory_metadata:
-                processed_query = memory_metadata.get("full_query", processed_query)
-                intent_detection["intent"] = memory_metadata.get("intent", intent_detection.get("intent"))
-                if memory_metadata.get("need_memory"):
-                    history_for_agents = memory_metadata.get("history_window", history_messages[-6:])
-                else:
-                    history_for_agents = []
-
-        intent_info = intent_detection
+        intent_label = "product_search" if use_product_search else "general"
+        intent_info = {
+            "intent": intent_label,
+            "confidence": 1.0
+        }
 
         # Try using multi-agent system first
         if coordinator_agent is not None:
@@ -661,7 +646,8 @@ async def query_llm(request: QueryRequest):
                 "user_id": request.user_id,
                 "model": model,
                 "history": history_for_agents,
-                "forced_intent_result": intent_detection
+                "intent": intent_label,
+                "forced_intent_result": intent_info
             }
 
             # Run through multi-agent system
@@ -710,7 +696,11 @@ async def query_llm(request: QueryRequest):
             logger.info("⚠️ Multi-agent system unavailable, using direct LLM call")
 
             system_prompt = DEFAULT_SYSTEM_PROMPT
-            intent_info = intent_detection
+            intent_info = {
+                "intent": intent_label,
+                "confidence": 1.0,
+                "agents_used": []
+            }
 
             llm_input = processed_query
             if history_for_agents:
@@ -753,16 +743,13 @@ async def query_llm(request: QueryRequest):
             "tokens": tokens,
             "latency_ms": latency_ms,
         }
+        query_log["use_memory_toggle"] = use_memory
+        query_log["use_product_search_toggle"] = use_product_search
 
-        if memory_metadata:
-            query_log["need_memory"] = memory_metadata.get("need_memory")
-            query_log["memory_reason"] = memory_metadata.get("reason")
-            processed = memory_metadata.get("full_query")
-            if processed and processed != request.query:
-                query_log["processed_query"] = processed
-        elif need_memory_detector is None and history_for_agents:
+        if use_memory and history_for_agents:
             query_log["need_memory"] = True
-            query_log["memory_reason"] = "legacy_history"
+            query_log["memory_reason"] = "user_toggle"
+            query_log["history_window_size"] = len(history_for_agents)
 
         # Add multi-agent specific fields if available
         if intent_info:
@@ -841,9 +828,9 @@ async def query_llm(request: QueryRequest):
             "citations": citations
         }
 
-        if memory_metadata:
-            response_data["need_memory"] = memory_metadata.get("need_memory")
-            response_data["memory_reason"] = memory_metadata.get("reason")
+        if use_memory and history_for_agents:
+            response_data["need_memory"] = True
+            response_data["memory_reason"] = "user_toggle"
 
         if product_cards:
             response_data["product_cards"] = product_cards

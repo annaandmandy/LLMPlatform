@@ -51,6 +51,8 @@ export default function Home() {
   const [sessionId, setSessionId] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [selectedModel, setSelectedModel] = useState("gpt-4o-mini");
+  const [useMemoryFetch, setUseMemoryFetch] = useState(false);
+  const [useProductSearch, setUseProductSearch] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
@@ -295,6 +297,10 @@ export default function Home() {
                   selectedModel={selectedModel}
                   setSelectedModel={setSelectedModel}
                   messages={messages}
+                  useMemoryFetch={useMemoryFetch}
+                  setUseMemoryFetch={setUseMemoryFetch}
+                  useProductSearch={useProductSearch}
+                  setUseProductSearch={setUseProductSearch}
                 />
               </div>
             </div>
@@ -337,6 +343,10 @@ export default function Home() {
                   selectedModel={selectedModel}
                   setSelectedModel={setSelectedModel}
                   messages={messages}
+                  useMemoryFetch={useMemoryFetch}
+                  setUseMemoryFetch={setUseMemoryFetch}
+                  useProductSearch={useProductSearch}
+                  setUseProductSearch={setUseProductSearch}
                 />
               </div>
             </div>
