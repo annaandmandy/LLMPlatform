@@ -44,6 +44,12 @@ interface ChatSession {
   timestamp: Date;
 }
 
+interface LocationData {
+  latitude: number;
+  longitude: number;
+  accuracy?: number;
+}
+
 export default function Home() {
   const [query, setQuery] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
@@ -53,6 +59,8 @@ export default function Home() {
   const [selectedModel, setSelectedModel] = useState("gpt-4o-mini");
   const [useMemoryFetch, setUseMemoryFetch] = useState(false);
   const [useProductSearch, setUseProductSearch] = useState(false);
+  const [location, setLocation] = useState<LocationData | null>(null);
+  const [locationReady, setLocationReady] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
@@ -88,12 +96,52 @@ export default function Home() {
     loadSession(sId);
   }, []);
 
+  useEffect(() => {
+    if (!sessionId) {
+      return;
+    }
+
+    let cancelled = false;
+    setLocationReady(false);
+
+    if (!("geolocation" in navigator)) {
+      setLocation(null);
+      setLocationReady(true);
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        if (cancelled) return;
+        setLocation({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          accuracy: position.coords.accuracy,
+        });
+        setLocationReady(true);
+      },
+      (error) => {
+        console.warn("Geolocation error:", error);
+        if (cancelled) return;
+        setLocation(null);
+        setLocationReady(true);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
+
   // NEW: Initialize session-based tracking (using the same sessionId as chat)
   useSession({
     userId: userId || "anonymous",
     sessionId: sessionId,  // Use the same sessionId as chat
     modelGroup: selectedModel,
     experimentId: "production_v1",
+    location,
+    locationReady,
   });
 
   // NEW: Initialize event tracking (using the same sessionId as chat)
@@ -301,6 +349,7 @@ export default function Home() {
                   setUseMemoryFetch={setUseMemoryFetch}
                   useProductSearch={useProductSearch}
                   setUseProductSearch={setUseProductSearch}
+                  location={location}
                 />
               </div>
             </div>
@@ -348,6 +397,7 @@ export default function Home() {
                   setUseMemoryFetch={setUseMemoryFetch}
                   useProductSearch={useProductSearch}
                   setUseProductSearch={setUseProductSearch}
+                  location={location}
                 />
               </div>
             </div>

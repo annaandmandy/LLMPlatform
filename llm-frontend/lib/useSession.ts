@@ -1,10 +1,18 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
+
+interface LocationInfo {
+  latitude: number;
+  longitude: number;
+  accuracy?: number;
+}
 
 interface SessionOptions {
   userId: string;
   sessionId?: string;  // Optional: use existing session ID
   modelGroup: string;
   experimentId?: string;
+  location?: LocationInfo | null;
+  locationReady?: boolean;
 }
 
 /**
@@ -14,14 +22,32 @@ interface SessionOptions {
  * - Starts session on mount
  * - Ends session on unmount
  */
-export function useSession({ userId, sessionId: providedSessionId, modelGroup, experimentId = 'default' }: SessionOptions) {
+export function useSession({
+  userId,
+  sessionId: providedSessionId,
+  modelGroup,
+  experimentId = 'default',
+  location,
+  locationReady = true,
+}: SessionOptions) {
   const [sessionId, setSessionId] = useState<string>('');
+  const sessionStartedRef = useRef(false);
 
   useEffect(() => {
     // Don't create session if we don't have real userId or sessionId yet
+    if (!locationReady) {
+      return;
+    }
+
     if (!userId || userId === 'anonymous' || !providedSessionId) {
       return;
     }
+
+    if (sessionStartedRef.current) {
+      return;
+    }
+
+    sessionStartedRef.current = true;
 
     const newSessionId = providedSessionId;
     setSessionId(newSessionId);
@@ -37,6 +63,13 @@ export function useSession({ userId, sessionId: providedSessionId, modelGroup, e
       },
       language: navigator.language || 'en',
       connection: getConnectionType(),
+      location: location
+        ? {
+            latitude: location.latitude,
+            longitude: location.longitude,
+            accuracy: location.accuracy,
+          }
+        : undefined,
     };
 
     // Initialize session (backend will check if it exists)
@@ -78,10 +111,20 @@ export function useSession({ userId, sessionId: providedSessionId, modelGroup, e
     window.addEventListener('beforeunload', endSession);
 
     return () => {
+      sessionStartedRef.current = false;
       window.removeEventListener('beforeunload', endSession);
       endSession();
     };
-  }, [userId, providedSessionId, modelGroup, experimentId]);
+  }, [
+    userId,
+    providedSessionId,
+    modelGroup,
+    experimentId,
+    locationReady,
+    location?.latitude,
+    location?.longitude,
+    location?.accuracy,
+  ]);
 
   return sessionId;
 }

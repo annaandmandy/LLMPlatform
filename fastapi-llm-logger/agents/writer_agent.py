@@ -80,6 +80,7 @@ class WriterAgent(BaseAgent):
         memory_context = request.get("memory_context", [])
         product_cards = request.get("product_cards", [])
         history = request.get("history", [])
+        location = request.get("location")
 
         logger.info(f"Generating response for intent: {intent}")
 
@@ -89,7 +90,8 @@ class WriterAgent(BaseAgent):
             intent=intent,
             memory_context=memory_context,
             product_cards=product_cards,
-            history=history
+            history=history,
+            location=location
         )
 
         # Determine provider from model name
@@ -137,7 +139,8 @@ class WriterAgent(BaseAgent):
         intent: str,
         memory_context: List[Dict],
         product_cards: List[Dict],
-        history: List[Dict]
+        history: List[Dict],
+        location: Optional[Dict[str, Any]] = None
     ) -> str:
         """
         Build enriched prompt with context from various sources.
@@ -172,6 +175,14 @@ class WriterAgent(BaseAgent):
                 prompt_parts.append(f"- (Similarity: {similarity:.2f}) {content[:150]}")
             prompt_parts.append("")
 
+        # Add location context if available
+        if location:
+            location_text = self._format_location(location)
+            if location_text:
+                prompt_parts.append("## User Location:")
+                prompt_parts.append(location_text)
+                prompt_parts.append("")
+
         # Add intent-specific instructions
         if intent == "product_search":
             prompt_parts.append("## Instructions:")
@@ -193,6 +204,33 @@ class WriterAgent(BaseAgent):
         prompt_parts.append(query)
 
         return "\n".join(prompt_parts)
+
+    def _format_location(self, location: Dict[str, Any]) -> str:
+        """Convert location metadata into readable text."""
+        parts = []
+        city = location.get("city")
+        region = location.get("region")
+        country = location.get("country")
+        if city:
+            parts.append(city)
+        if region and region not in parts:
+            parts.append(region)
+        if country and country not in parts:
+            parts.append(country)
+
+        lat = location.get("latitude")
+        lon = location.get("longitude")
+        if lat is not None and lon is not None:
+            parts.append(f"latitude {lat:.4f}, longitude {lon:.4f}")
+
+        accuracy = location.get("accuracy")
+        if accuracy:
+            parts.append(f"(accuracy ±{accuracy:.0f}m)")
+
+        if not parts:
+            return ""
+
+        return ", ".join(parts)
 
     def _get_provider_from_model(self, model: str) -> str:
         """

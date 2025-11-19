@@ -42,6 +42,11 @@ interface QueryBoxProps {
   setUseMemoryFetch: (value: boolean) => void;
   useProductSearch: boolean;
   setUseProductSearch: (value: boolean) => void;
+  location?: {
+    latitude: number;
+    longitude: number;
+    accuracy?: number;
+  } | null;
   messages?: Message[];
 }
 
@@ -71,6 +76,7 @@ export default function QueryBox({
   setUseMemoryFetch,
   useProductSearch,
   setUseProductSearch,
+  location,
   messages = [],
 }: QueryBoxProps) {
   const [error, setError] = useState("");
@@ -128,6 +134,7 @@ export default function QueryBox({
           use_memory: useMemoryFetch,
           use_product_search: useProductSearch,
           history: historyPayload,
+          location,
         }),
       });
 

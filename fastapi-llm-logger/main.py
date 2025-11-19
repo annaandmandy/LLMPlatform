@@ -91,6 +91,14 @@ class MessageHistory(AppBaseModel):
     role: str  # "user" or "assistant"
     content: str
 
+class LocationInfo(AppBaseModel):
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    accuracy: Optional[float] = None
+    city: Optional[str] = None
+    region: Optional[str] = None
+    country: Optional[str] = None
+
 class QueryRequest(AppBaseModel):
     user_id: str
     session_id: str
@@ -101,6 +109,7 @@ class QueryRequest(AppBaseModel):
     use_memory: Optional[bool] = False
     use_product_search: Optional[bool] = False
     history: Optional[List[MessageHistory]] = []  # NEW: Conversation history for multi-agent context
+    location: Optional[LocationInfo] = None
 
 
 class LogEventRequest(AppBaseModel):
@@ -121,6 +130,7 @@ class Environment(AppBaseModel):
     viewport: Dict[str, int]  # {"width": 1920, "height": 1080}
     language: Optional[str] = "en"
     connection: Optional[str] = None
+    location: Optional[LocationInfo] = None
 
 
 class EventData(AppBaseModel):
@@ -248,6 +258,38 @@ def initialize_agents():
 
     except Exception as e:
         logger.error(f"❌ Failed to initialize multi-agent system: {e}")
+
+
+def format_location_text(location: Optional[Dict[str, Any]]) -> Optional[str]:
+    """Convert location metadata into a readable string for prompts."""
+    if not location:
+        return None
+
+    parts = []
+
+    city = location.get("city")
+    region = location.get("region")
+    country = location.get("country")
+    if city:
+        parts.append(city)
+    if region and region not in parts:
+        parts.append(region)
+    if country and country not in parts:
+        parts.append(country)
+
+    lat = location.get("latitude")
+    lon = location.get("longitude")
+    if lat is not None and lon is not None:
+        parts.append(f"lat {lat:.4f}, lon {lon:.4f}")
+
+    if not parts:
+        return None
+
+    accuracy = location.get("accuracy")
+    if accuracy:
+        parts.append(f"(accuracy ±{accuracy:.0f}m)")
+
+    return ", ".join(parts)
 
 
 # ==== HELPER FUNCTIONS ====
@@ -625,6 +667,15 @@ async def query_llm(request: QueryRequest):
 
         use_memory = bool(request.use_memory)
         use_product_search = bool(request.use_product_search)
+        location_data = request.location.model_dump(exclude_none=True) if request.location else None
+        if location_data is None and sessions_collection is not None:
+            session_env = sessions_collection.find_one(
+                {"session_id": request.session_id},
+                {"environment.location": 1}
+            )
+            if session_env:
+                location_data = session_env.get("environment", {}).get("location")
+        location_text = format_location_text(location_data)
 
         processed_query = request.query
         history_for_agents = history_messages[-6:] if use_memory else []
@@ -636,6 +687,12 @@ async def query_llm(request: QueryRequest):
         }
 
         # Try using multi-agent system first
+        if location_data and sessions_collection is not None:
+            sessions_collection.update_one(
+                {"session_id": request.session_id},
+                {"$set": {"environment.location": location_data}}
+            )
+
         if coordinator_agent is not None:
             logger.info("🤖 Using multi-agent system")
 
@@ -647,7 +704,8 @@ async def query_llm(request: QueryRequest):
                 "model": model,
                 "history": history_for_agents,
                 "intent": intent_label,
-                "forced_intent_result": intent_info
+                "forced_intent_result": intent_info,
+                "location": location_data
             }
 
             # Run through multi-agent system
@@ -713,6 +771,8 @@ async def query_llm(request: QueryRequest):
                     f"{history_text}\n\n"
                     f"Current question: {processed_query}"
                 )
+            if location_text:
+                llm_input = f"User location: {location_text}\n\n{llm_input}"
 
             if request.model_provider == "openai":
                 response_text, citations, raw, tokens = call_openai(model, llm_input, system_prompt=system_prompt)
@@ -745,6 +805,8 @@ async def query_llm(request: QueryRequest):
         }
         query_log["use_memory_toggle"] = use_memory
         query_log["use_product_search_toggle"] = use_product_search
+        if location_data:
+            query_log["user_location"] = location_data
 
         if use_memory and history_for_agents:
             query_log["need_memory"] = True
@@ -831,6 +893,8 @@ async def query_llm(request: QueryRequest):
         if use_memory and history_for_agents:
             response_data["need_memory"] = True
             response_data["memory_reason"] = "user_toggle"
+        if location_data:
+            response_data["user_location"] = location_data
 
         if product_cards:
             response_data["product_cards"] = product_cards
@@ -959,6 +1023,15 @@ async def start_session(request: SessionStartRequest):
 
     if existing_session:
         # Session already exists, don't create duplicate
+        incoming_location = (request.environment.location.dict(exclude_none=True)
+                             if request.environment and request.environment.location
+                             else None)
+        stored_location = existing_session.get("environment", {}).get("location")
+        if incoming_location and not stored_location:
+            sessions_collection.update_one(
+                {"session_id": request.session_id},
+                {"$set": {"environment.location": incoming_location}}
+            )
         logger.info(f"♻️ Session already exists: {request.session_id}")
         return {"status": "success", "session_id": request.session_id, "existing": True}
 
