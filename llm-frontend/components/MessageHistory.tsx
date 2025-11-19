@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, CSSProperties } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import ProductCard from "./ProductCard";
@@ -36,6 +36,7 @@ interface MessageHistoryProps {
   userId: string;
   sessionId: string;
   messagesEndRef: React.RefObject<HTMLDivElement>;
+  isLoading?: boolean;
 }
 
 export default function MessageHistory({
@@ -43,9 +44,11 @@ export default function MessageHistory({
   userId,
   sessionId,
   messagesEndRef,
+  isLoading = false,
 }: MessageHistoryProps) {
   const [clickedLinks, setClickedLinks] = useState<Set<string>>(new Set());
   const [expandedSources, setExpandedSources] = useState<Set<number>>(new Set());
+  const typingDotStyle = (delay: number): CSSProperties => ({ animationDelay: `${delay}s` });
 
   const toggleSources = (index: number) => {
     const updated = new Set(expandedSources);
@@ -228,6 +231,23 @@ export default function MessageHistory({
           </div>
         );
       })}
+
+      {isLoading && (
+        <div className="flex justify-start">
+          <div className="max-w-[80%]">
+            <div className="rounded-lg px-4 py-3 bg-white text-gray-500 shadow-md border border-gray-200">
+              <div className="flex items-center gap-2">
+                <span className="text-gray-700">Assistant is thinking</span>
+                <div className="flex gap-1" aria-label="Loading">
+                  <span className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" />
+                  <span className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={typingDotStyle(0.15)} />
+                  <span className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={typingDotStyle(0.3)} />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div ref={messagesEndRef} />
     </div>

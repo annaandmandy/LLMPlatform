@@ -325,6 +325,7 @@ export default function Home() {
                   userId={userId}
                   sessionId={sessionId}
                   messagesEndRef={messagesEndRef}
+                  isLoading={isLoading}
                 />
               </div>
             </div>
