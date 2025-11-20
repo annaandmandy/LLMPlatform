@@ -96,6 +96,23 @@ class CoordinatorAgent(BaseAgent):
         collected_tokens: Optional[Dict[str, Any]] = None
         raw_response: Optional[Dict[str, Any]] = None
 
+        # Step 1.5: Load memory/context bundle when enabled
+        use_memory = bool(request.get("use_memory", True))
+        if self.memory_agent and use_memory:
+            try:
+                mem_result = await self.memory_agent.run(
+                    {
+                        "action": "context_bundle",
+                        "query": query,
+                        "session_id": session_id,
+                        "user_id": user_id,
+                    }
+                )
+                memory_context = mem_result["output"]
+                agents_used.append("MemoryAgent")
+            except Exception as e:
+                logger.warning(f"MemoryAgent retrieval failed: {e}")
+
         # Step 2: Route based on intent
         if intent == "product_search":
             # Product search flow: leverage ProductAgent dual-output prompt for structured data
@@ -105,7 +122,7 @@ class CoordinatorAgent(BaseAgent):
                 **request,
                 "intent": intent,
                 "product_cards": None,
-                "memory_context": None
+                "memory_context": memory_context
             }
             writer_result = await self.writer_agent.run(writer_request)
             writer_output = writer_result["output"]
@@ -129,7 +146,7 @@ class CoordinatorAgent(BaseAgent):
             writer_request = {
                 **request,
                 "intent": intent,
-                "memory_context": None,
+                "memory_context": memory_context,
                 "product_cards": None
             }
             writer_result = await self.writer_agent.run(writer_request)
@@ -154,9 +171,6 @@ class CoordinatorAgent(BaseAgent):
         if structured_products:
             result["product_json"] = structured_products
 
-        if memory_context:
-            result["memory_context"] = memory_context
-
         if collected_citations:
             result["citations"] = collected_citations
 
@@ -165,6 +179,9 @@ class CoordinatorAgent(BaseAgent):
 
         if raw_response:
             result["raw_response"] = raw_response
+
+        if memory_context:
+            result["memory_context"] = memory_context
 
         logger.info(f"Request processed. Agents used: {', '.join(agents_used)}")
 

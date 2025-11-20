@@ -62,7 +62,6 @@ export default function Home() {
   const [experimentDraft, setExperimentDraft] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [selectedModel, setSelectedModel] = useState("gpt-4o-mini");
-  const [useMemoryFetch, setUseMemoryFetch] = useState(false);
   const [useProductSearch, setUseProductSearch] = useState(false);
   const [location, setLocation] = useState<LocationData | null>(null);
   const [locationReady, setLocationReady] = useState(false);
@@ -70,6 +69,7 @@ export default function Home() {
   const [showTermsModal, setShowTermsModal] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [showClearUserModal, setShowClearUserModal] = useState(false);
+  const [, setMemoryContext] = useState<Record<string, unknown> | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -282,6 +282,7 @@ export default function Home() {
     setExperimentId("");
     setExperimentDraft("");
     setShowExperimentModal(true);
+    setMemoryContext(null);
   };
 
   const handleSelectSession = (sId: string) => {
@@ -293,6 +294,7 @@ export default function Home() {
     // Load selected session
     setSessionId(sId);
     sessionStorage.setItem("session_id", sId);
+    setMemoryContext(null);
     loadSession(sId);
   };
 
@@ -363,9 +365,11 @@ export default function Home() {
       />
 
       {/* Main content area */}
-      <main className={`flex-1 flex flex-col bg-gradient-to-br from-blue-50 to-indigo-100 transition-all duration-300 overflow-hidden ${
-        sidebarOpen ? "lg:ml-64" : ""
-      }`}>
+      <main
+        className={`flex-1 flex flex-col bg-gradient-to-br from-blue-50 to-indigo-100 transition-all duration-300 overflow-hidden ${
+          sidebarOpen ? "lg:ml-64" : ""
+        }`}
+      >
         {messages.length === 0 ? (
           /* Centered layout for new chat */
           <div className="flex-1 flex flex-col items-center justify-center p-8">
@@ -386,6 +390,7 @@ export default function Home() {
                   query={query}
                   setQuery={setQuery}
                   addMessage={addMessage}
+                  setMemoryContext={setMemoryContext}
                   userId={userId}
                   sessionId={sessionId}
                   isLoading={isLoading}
@@ -393,8 +398,6 @@ export default function Home() {
                   selectedModel={selectedModel}
                   setSelectedModel={setSelectedModel}
                   messages={messages}
-                  useMemoryFetch={useMemoryFetch}
-                  setUseMemoryFetch={setUseMemoryFetch}
                   useProductSearch={useProductSearch}
                   setUseProductSearch={setUseProductSearch}
                   location={location}
@@ -414,7 +417,7 @@ export default function Home() {
               </p>
             </header>
 
-            {/* Message area with full-width scrollbar */}
+            {/* Message area */}
             <div className="flex-1 overflow-y-auto">
               <div className="max-w-4xl w-full mx-auto">
                 <MessageHistory
@@ -434,6 +437,7 @@ export default function Home() {
                   query={query}
                   setQuery={setQuery}
                   addMessage={addMessage}
+                  setMemoryContext={setMemoryContext}
                   userId={userId}
                   sessionId={sessionId}
                   isLoading={isLoading}
@@ -441,8 +445,6 @@ export default function Home() {
                   selectedModel={selectedModel}
                   setSelectedModel={setSelectedModel}
                   messages={messages}
-                  useMemoryFetch={useMemoryFetch}
-                  setUseMemoryFetch={setUseMemoryFetch}
                   useProductSearch={useProductSearch}
                   setUseProductSearch={setUseProductSearch}
                   location={location}

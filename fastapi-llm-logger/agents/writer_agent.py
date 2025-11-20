@@ -167,13 +167,47 @@ class WriterAgent(BaseAgent):
             prompt_parts.append("")
 
         # Add memory context if available
-        if memory_context and len(memory_context) > 0:
+        if memory_context:
             prompt_parts.append("## Relevant Past Context:")
-            for ctx in memory_context[:3]:  # Top 3 relevant contexts
-                content = ctx.get("content", "")
-                similarity = ctx.get("similarity", 0)
-                prompt_parts.append(f"- (Similarity: {similarity:.2f}) {content[:150]}")
-            prompt_parts.append("")
+            if isinstance(memory_context, dict):
+                summaries = memory_context.get("summaries", []) or []
+                retrieved = memory_context.get("context", []) or []
+                recents = memory_context.get("recent_messages", []) or []
+                memories = memory_context.get("memories", []) or []
+
+                if summaries:
+                    prompt_parts.append("### Session/Global Summaries")
+                    for s in summaries[:3]:
+                        prompt_parts.append(f"- {s.get('summary', '')[:240]}")
+                    prompt_parts.append("")
+
+                if memories:
+                    prompt_parts.append("### Stored User Facts")
+                    for mem in memories[:5]:
+                        prompt_parts.append(f"- {mem.get('key')}: {mem.get('value')}")
+                    prompt_parts.append("")
+
+                if retrieved:
+                    prompt_parts.append("### Semantically Similar Messages")
+                    for ctx in retrieved[:4]:
+                        content = ctx.get("content", "")
+                        similarity = ctx.get("similarity", 0)
+                        prompt_parts.append(f"- (sim {similarity:.2f}) {content[:200]}")
+                    prompt_parts.append("")
+
+                if recents:
+                    prompt_parts.append("### Recent Turns")
+                    for msg in recents[-6:]:
+                        role = msg.get("role", "user")
+                        content = msg.get("content", "")
+                        prompt_parts.append(f"- {role}: {content[:180]}")
+                    prompt_parts.append("")
+            else:
+                for ctx in memory_context[:3]:  # Top 3 relevant contexts
+                    content = ctx.get("content", "")
+                    similarity = ctx.get("similarity", 0)
+                    prompt_parts.append(f"- (Similarity: {similarity:.2f}) {content[:150]}")
+                prompt_parts.append("")
 
         # Add location context if available
         if location:

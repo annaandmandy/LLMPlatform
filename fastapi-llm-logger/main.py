@@ -69,6 +69,7 @@ try:
     vectors_collection = db["vectors"]
     products_collection = db["products"]
     agent_logs_collection = db["agent_logs"]
+    memories_collection = db["memories"]
 
     logger.info("✅ Connected to MongoDB")
 except Exception as e:
@@ -657,6 +658,7 @@ async def query_llm(request: QueryRequest):
         model = request.model_name
         product_cards = None
         product_structured = None
+        memory_context = None
         intent_info = None
 
         history_messages = [
@@ -693,6 +695,11 @@ async def query_llm(request: QueryRequest):
                 {"$set": {"environment.location": location_data}}
             )
 
+        # Try to lazily (re)initialize agents if they are missing but DB is up
+        if coordinator_agent is None and db is not None:
+            logger.warning("Multi-agent system not initialized; attempting to initialize now")
+            initialize_agents()
+
         if coordinator_agent is not None:
             logger.info("🤖 Using multi-agent system")
 
@@ -705,7 +712,8 @@ async def query_llm(request: QueryRequest):
                 "history": history_for_agents,
                 "intent": intent_label,
                 "forced_intent_result": intent_info,
-                "location": location_data
+                "location": location_data,
+                "use_memory": use_memory,
             }
 
             # Run through multi-agent system
@@ -725,6 +733,7 @@ async def query_llm(request: QueryRequest):
             # Extract product cards if present
             product_cards = agent_output.get("product_cards")
             product_structured = agent_output.get("product_json")
+            memory_context = agent_output.get("memory_context")
 
             # Store embeddings for RAG (async, don't wait)
             if memory_agent:
@@ -732,6 +741,7 @@ async def query_llm(request: QueryRequest):
                 try:
                     await memory_agent.store_message_embedding(
                         session_id=request.session_id,
+                        user_id=request.user_id,
                         role="user",
                         content=request.query,
                         message_index=history_count if history_count else 0
@@ -739,6 +749,7 @@ async def query_llm(request: QueryRequest):
                     # Store assistant response embedding
                     await memory_agent.store_message_embedding(
                         session_id=request.session_id,
+                        user_id=request.user_id,
                         role="assistant",
                         content=response_text,
                         message_index=history_count + 1 if history_count else 1
@@ -901,6 +912,9 @@ async def query_llm(request: QueryRequest):
 
         if product_structured:
             response_data["product_json"] = product_structured
+
+        if use_memory and memory_context:
+            response_data["memory_context"] = memory_context
 
         if intent_info:
             response_data["intent"] = intent_info.get("intent")

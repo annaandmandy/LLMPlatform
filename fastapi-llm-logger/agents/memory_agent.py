@@ -7,12 +7,14 @@ Handles conversation memory through:
 3. RAG-based context retrieval
 """
 
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 import logging
 from datetime import datetime
 import asyncio
 from .base_agent import BaseAgent
 from utils.embeddings import get_embedding, find_most_similar
+from openai import OpenAI
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +39,16 @@ class MemoryAgent(BaseAgent):
         """
         super().__init__(name="MemoryAgent", db=db)
         self.summary_interval = summary_interval
+        if db is not None:
+            self.sessions = db.sessions
+            self.vectors = db.vectors
+            self.summaries = db.summaries
+            self.memories = db.memories if "memories" in db.list_collection_names() else db["memories"]
+        else:
+            self.sessions = None
+            self.vectors = None
+            self.summaries = None
+            self.memories = None
 
     async def execute(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -57,6 +69,8 @@ class MemoryAgent(BaseAgent):
         if action == "summarize":
             return await self._summarize_session(request)
         elif action == "retrieve":
+            return await self._retrieve_context(request)
+        elif action == "context_bundle":
             return await self._retrieve_context(request)
         else:
             logger.warning(f"Unknown action: {action}")
@@ -95,9 +109,10 @@ class MemoryAgent(BaseAgent):
         try:
             # Get session messages from sessions collection
             session = await asyncio.to_thread(
-                self.db.sessions.find_one,
+                self.sessions.find_one,
                 {"session_id": session_id}
             )
+            user_id = session.get("user_id") if session else None
 
             if not session:
                 return {"summary": "No conversation history found"}
@@ -123,11 +138,19 @@ class MemoryAgent(BaseAgent):
             if len(messages) == 0:
                 return {"summary": "No messages to summarize"}
 
-            # Generate summary text
-            summary_text = self._create_summary_text(messages)
+            # Generate summary text (LLM first, fall back to rule-based)
+            summary_text = await self._generate_llm_summary(messages)
+            if not summary_text:
+                summary_text = self._create_summary_text(messages)
 
             # Store summary in summaries collection
-            await self._store_summary(session_id, summary_text, len(messages))
+            await self._store_summary(
+                session_id,
+                summary_text,
+                len(messages),
+                model_used="gpt-4o-mini" if summary_text else "rule_based",
+                user_id=user_id,
+            )
 
             transcript = [
                 {
@@ -159,49 +182,38 @@ class MemoryAgent(BaseAgent):
         """
         query = request.get("query", "")
         session_id = request.get("session_id")
-        top_k = request.get("top_k", 10)
+        user_id = request.get("user_id")
+        top_k = request.get("top_k", 8)
+        include_cross_session = request.get("include_cross_session", True)
 
         if not query:
-            return {"context": []}
+            return {"context": [], "recent_messages": [], "summaries": []}
 
         try:
-            # Generate query embedding
             query_embedding = get_embedding(query)
+            context, vectors = await self._semantic_search(
+                query_embedding=query_embedding,
+                session_id=session_id,
+                user_id=user_id,
+                top_k=top_k,
+                include_cross_session=include_cross_session,
+            )
 
-            # Find similar past messages from vectors collection
-            pipeline = [
-                {"$match": {"session_id": session_id}},
-                {"$limit": 100}  # Limit search space for performance
-            ]
+            recent_messages = await self._get_recent_messages(session_id, limit=6)
+            summaries = await self._get_summaries(user_id=user_id, session_id=session_id)
+            memories = await self._get_user_memories(user_id=user_id, limit=8)
 
-            cursor = self.db.vectors.find({"session_id": session_id}).limit(100)
-            vectors = await asyncio.to_thread(list, cursor)
-
-            if len(vectors) == 0:
-                return {"context": [], "message": "No past context available"}
-
-            # Compute similarities
-            candidate_embeddings = [v["embedding"] for v in vectors]
-            similar_indices = find_most_similar(query_embedding, candidate_embeddings, top_k=top_k)
-
-            # Get top similar messages
-            context = []
-            for idx, similarity in similar_indices:
-                if similarity > 0.5:  # Only include if similarity > threshold
-                    vector = vectors[idx]
-                    context.append({
-                        "role": vector.get("role"),
-                        "content": vector.get("content"),
-                        "similarity": similarity,
-                        "timestamp": vector.get("timestamp")
-                    })
-
-            logger.info(f"Retrieved {len(context)} relevant context messages")
-
-            return {
+            bundle = {
                 "context": context,
-                "query_embedding_dim": len(query_embedding)
+                "recent_messages": recent_messages,
+                "summaries": summaries,
+                "memories": memories,
+                "query_embedding_dim": len(query_embedding),
             }
+
+            logger.info(f"Retrieved {len(context)} similar snippets, {len(summaries)} summaries, {len(recent_messages)} recents")
+
+            return bundle
 
         except Exception as e:
             logger.error(f"Error retrieving context: {str(e)}")
@@ -212,7 +224,8 @@ class MemoryAgent(BaseAgent):
         session_id: str,
         role: str,
         content: str,
-        message_index: int = 0
+        message_index: int = 0,
+        user_id: Optional[str] = None,
     ):
         """
         Store a message embedding in the vectors collection.
@@ -222,6 +235,7 @@ class MemoryAgent(BaseAgent):
             role: "user" or "assistant"
             content: Message content
             message_index: Index in conversation
+            user_id: Optional user identifier
         """
         try:
             # Generate embedding
@@ -230,6 +244,7 @@ class MemoryAgent(BaseAgent):
             # Store in vectors collection
             vector_doc = {
                 "session_id": session_id,
+                "user_id": user_id,
                 "message_index": message_index,
                 "role": role,
                 "content": content,
@@ -237,13 +252,20 @@ class MemoryAgent(BaseAgent):
                 "timestamp": datetime.now()
             }
 
-            await asyncio.to_thread(self.db.vectors.insert_one, vector_doc)
+            await asyncio.to_thread(self.vectors.insert_one, vector_doc)
             logger.info(f"Stored embedding for {role} message (session: {session_id})")
 
         except Exception as e:
             logger.error(f"Error storing embedding: {str(e)}")
 
-    async def _store_summary(self, session_id: str, summary_text: str, message_count: int):
+    async def _store_summary(
+        self,
+        session_id: str,
+        summary_text: str,
+        message_count: int,
+        model_used: str = "rule_based",
+        user_id: Optional[str] = None,
+    ):
         """
         Store session summary in summaries collection.
 
@@ -251,33 +273,36 @@ class MemoryAgent(BaseAgent):
             session_id: Session identifier
             summary_text: Generated summary
             message_count: Number of messages summarized
+            model_used: Model or strategy used to generate summary
         """
         try:
             # Check if summary document exists
             summary_doc = await asyncio.to_thread(
-                self.db.summaries.find_one,
+                self.summaries.find_one,
                 {"session_id": session_id}
             )
 
             summary_entry = {
                 "t": datetime.now(),
                 "text": summary_text,
-                "message_count": message_count
+                "message_count": message_count,
+                "model": model_used,
             }
 
             if summary_doc:
                 # Append to existing summaries
                 await asyncio.to_thread(
-                    self.db.summaries.update_one,
+                    self.summaries.update_one,
                     {"session_id": session_id},
                     {"$push": {"summaries": summary_entry}}
                 )
             else:
                 # Create new summary document
                 await asyncio.to_thread(
-                    self.db.summaries.insert_one,
+                    self.summaries.insert_one,
                     {
                         "session_id": session_id,
+                        "user_id": user_id,
                         "summaries": [summary_entry],
                         "created_at": datetime.now()
                     }
@@ -352,3 +377,191 @@ class MemoryAgent(BaseAgent):
                 summary_lines.append(f"- {takeaway}")
 
         return "\n".join(summary_lines)
+
+    async def _generate_llm_summary(self, messages: List[Dict]) -> Optional[str]:
+        """
+        Generate a concise summary with an LLM when available.
+        Falls back to rule-based summary if the call fails.
+        """
+        if not messages:
+            return None
+
+        try:
+            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            # Keep the window small to control cost
+            recent = messages[-12:]
+            prompt_parts = []
+            for msg in recent:
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                prompt_parts.append(f"{role}: {content}")
+
+            prompt = (
+                "You are summarizing a chat for fast recall. "
+                "Return 4-6 bullet points capturing tasks, decisions, preferences, constraints, and data values. "
+                "Stay under 120 tokens. No extra commentary.\n\n"
+                + "\n".join(prompt_parts)
+            )
+
+            completion = await asyncio.to_thread(
+                client.chat.completions.create,
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "Summarize the dialogue for later retrieval."},
+                    {"role": "user", "content": prompt},
+                ],
+                max_tokens=200,
+                temperature=0.2,
+            )
+
+            return completion.choices[0].message.content.strip()
+        except Exception as e:
+            logger.warning(f"LLM summary failed, using rule-based summary: {e}")
+            return None
+
+    async def _semantic_search(
+        self,
+        query_embedding: List[float],
+        session_id: Optional[str],
+        user_id: Optional[str],
+        top_k: int = 8,
+        include_cross_session: bool = True,
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """
+        Run semantic search over vectors for the user/session.
+        """
+        if self.vectors is None:
+            return [], []
+
+        vector_filter: Dict[str, Any] = {}
+        if session_id:
+            vector_filter["session_id"] = session_id
+        if user_id:
+            vector_filter["user_id"] = user_id
+
+        cursor = self.vectors.find(vector_filter).sort("timestamp", -1).limit(200)
+        vectors = await asyncio.to_thread(list, cursor)
+
+        # Optionally extend with cross-session samples for this user
+        if include_cross_session and user_id and len(vectors) < 50:
+            extra_cursor = (
+                self.vectors.find({"user_id": user_id})
+                .sort("timestamp", -1)
+                .limit(200 - len(vectors))
+            )
+            extra_vectors = await asyncio.to_thread(list, extra_cursor)
+            vectors.extend(extra_vectors)
+
+        if len(vectors) == 0:
+            return [], []
+
+        candidate_embeddings = [v["embedding"] for v in vectors]
+        similar_indices = find_most_similar(query_embedding, candidate_embeddings, top_k=top_k)
+
+        context = []
+        for idx, similarity in similar_indices:
+            if similarity > 0.45:
+                vector = vectors[idx]
+                context.append(
+                    {
+                        "role": vector.get("role"),
+                        "content": vector.get("content"),
+                        "similarity": similarity,
+                        "timestamp": vector.get("timestamp"),
+                        "session_id": vector.get("session_id"),
+                    }
+                )
+
+        return context, vectors
+
+    async def _get_recent_messages(self, session_id: Optional[str], limit: int = 6) -> List[Dict[str, Any]]:
+        """
+        Return the most recent prompt/response pairs from the session events.
+        """
+        if not session_id or self.sessions is None:
+            return []
+
+        session = await asyncio.to_thread(
+            self.sessions.find_one,
+            {"session_id": session_id},
+            {"events": {"$slice": -limit * 2}},
+        )
+        if not session:
+            return []
+
+        recent = []
+        for ev in session.get("events", [])[-limit * 2:]:
+            if ev.get("type") == "prompt":
+                recent.append(
+                    {"role": "user", "content": ev.get("data", {}).get("text", ""), "timestamp": ev.get("t")}
+                )
+            elif ev.get("type") == "model_response":
+                recent.append(
+                    {"role": "assistant", "content": ev.get("data", {}).get("text", ""), "timestamp": ev.get("t")}
+                )
+        return recent[-limit:]
+
+    async def _get_summaries(self, user_id: Optional[str], session_id: Optional[str]) -> List[Dict[str, Any]]:
+        """
+        Fetch recent summaries for the session and (optionally) across the user.
+        """
+        if self.summaries is None:
+            return []
+
+        filters: List[Dict[str, Any]] = []
+        if session_id:
+            filters.append({"session_id": session_id})
+        if user_id:
+            filters.append({"user_id": user_id})
+
+        summaries: List[Dict[str, Any]] = []
+        for f in filters:
+            docs = await asyncio.to_thread(
+                list,
+                self.summaries.find(f).sort("created_at", -1).limit(2),
+            )
+            for doc in docs:
+                # Only take the newest summary entry per doc to save tokens
+                latest_entry = doc.get("summaries", [])[-1:] or []
+                for entry in latest_entry:
+                    summaries.append(
+                        {
+                            "session_id": doc.get("session_id"),
+                            "summary": entry.get("text"),
+                            "message_count": entry.get("message_count"),
+                            "model": entry.get("model"),
+                            "timestamp": entry.get("t"),
+                        }
+                    )
+        # deduplicate by summary text + session_id
+        seen = set()
+        unique = []
+        for s in summaries:
+            key = (s.get("session_id"), s.get("summary"))
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(s)
+        # Keep only the newest few summaries for prompt usage
+        return unique[:3]
+
+    async def _get_user_memories(self, user_id: Optional[str], limit: int = 8) -> List[Dict[str, Any]]:
+        """
+        Return stored key/value memories for the user (if the collection exists).
+        """
+        if not user_id or self.memories is None:
+            return []
+
+        memories = await asyncio.to_thread(
+            list,
+            self.memories.find({"user_id": user_id}).sort("updated_at", -1).limit(limit),
+        )
+        return [
+            {
+                "key": mem.get("key"),
+                "value": mem.get("value"),
+                "updated_at": mem.get("updated_at"),
+                "tokenCount": mem.get("tokenCount"),
+            }
+            for mem in memories
+        ]
