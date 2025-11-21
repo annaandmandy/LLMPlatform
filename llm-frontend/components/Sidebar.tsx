@@ -126,12 +126,12 @@ export default function Sidebar({
 
       {/* Sidebar */}
       <div
-        className={`fixed top-0 left-0 h-full bg-gray-700 text-gray-50 w-64 transform transition-transform duration-300 z-50 flex flex-col shadow-xl ${
+        className={`fixed top-0 left-0 h-full bg-white text-slate-700 w-64 border-r border-gray-200 shadow-sm transform transition-transform duration-300 z-50 flex flex-col shadow-xl ${
           isOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
         {/* Header */}
-        <div className="p-4 border-b border-gray-500 flex justify-between items-center">
+        <div className="p-4 border-b border-gray-200 flex justify-between items-center bg-white">
           <h2 className="text-lg font-semibold">Chat History</h2>
           <button
             onClick={onToggle}
@@ -145,13 +145,13 @@ export default function Sidebar({
         </div>
 
         {/* New Chat Button */}
-        <div className="p-3 border-b border-gray-500 space-y-2">
+        <div className="p-3 border-b border-gray-200 space-y-2 bg-white">
           <button
             onClick={() => {
               onNewChat();
               loadSessions(); // Refresh sessions list
             }}
-            className="w-full flex items-center gap-2 px-4 py-3 bg-blue-500 hover:bg-blue-600 rounded-lg transition-colors font-medium"
+            className="w-full flex items-center gap-2 px-4 py-3 bg-blue-300 hover:bg-blue-400 rounded-lg transition-colors font-medium"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -160,14 +160,14 @@ export default function Sidebar({
           </button>
           <a
             href="/tokens"
-            className="w-full flex items-center gap-2 px-4 py-3 bg-purple-500 hover:bg-purple-600 rounded-lg transition-colors font-medium"
+            className="w-full flex items-center gap-2 px-4 py-3 bg-purple-300 hover:bg-purple-400 rounded-lg transition-colors font-medium"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
             </svg>
             Token Analytics
           </a>
-          <div className="pt-1">
+          {/* <div className="pt-1">
             <button
               onClick={() => setShowMemories((prev) => !prev)}
               className="w-full flex items-center justify-between px-3 py-2 bg-gray-600 hover:bg-gray-500 rounded-lg transition-colors text-sm"
@@ -187,7 +187,7 @@ export default function Sidebar({
                 <MemoryPanel userId={userId} />
               </div>
             )}
-          </div>
+          </div> */}
         </div>
 
         {/* Chat Sessions List */}
@@ -209,8 +209,8 @@ export default function Sidebar({
                   key={session.id}
                   className={`group relative rounded-lg transition-colors ${
                     currentSessionId === session.id
-                      ? "bg-gray-600"
-                      : "hover:bg-gray-600"
+                      ? "bg-slate-200"
+                      : "hover:bg-slate-100"
                   }`}
                 >
                   <button
@@ -244,7 +244,7 @@ export default function Sidebar({
                   {/* Delete button */}
                   <button
                     onClick={(e) => handleDeleteSession(session.id, e)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 hover:bg-red-600 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 hover:bg-red-500/10 rounded opacity-0 group-hover:opacity-100 transition-opacity"
                     aria-label="Delete chat"
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -281,7 +281,7 @@ export default function Sidebar({
             ) : (
               <button
                 onClick={() => setShowClearConfirm(true)}
-                className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm text-gray-200 hover:text-white hover:bg-gray-600 rounded-lg transition-colors"
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm text-gray-600 hover:text-white hover:bg-gray-600 rounded-lg transition-colors"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -293,18 +293,18 @@ export default function Sidebar({
         )}
 
         {/* Footer - User Info & Actions */}
-        <div className="p-4 border-t border-gray-500 space-y-3">
+        <div className="p-4 border-t border-gray-200 space-y-3 bg-white">
           {/* User Info */}
           <div className="flex items-center gap-3">
             {/* User Avatar */}
-            <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center flex-shrink-0">
+            <div className="w-8 h-8 bg-blue-200 rounded-full flex items-center justify-center flex-shrink-0">
               <span className="text-sm font-semibold">U</span>
             </div>
 
             {/* User Info */}
             <div className="flex-1 min-w-0">
               <div className="text-sm font-medium">Anonymous User</div>
-              <div className="text-xs text-gray-300">ID: {userId.slice(0, 8)}...</div>
+              <div className="text-xs text-gray-600">ID: {userId.slice(0, 8)}...</div>
             </div>
 
             {/* Clear User Button */}
@@ -314,7 +314,7 @@ export default function Sidebar({
               aria-label="Clear user and start fresh"
               title="Clear user and start fresh"
             >
-              <svg className="w-4 h-4 text-gray-300 group-hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-4 h-4 text-gray-600 group-hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
             </button>
@@ -323,7 +323,7 @@ export default function Sidebar({
           {/* Terms & Privacy Link */}
           <button
             onClick={onShowTerms}
-            className="w-full text-left px-2 py-1.5 text-xs text-gray-300 hover:text-white hover:bg-gray-600 rounded transition-colors"
+            className="w-full text-left px-2 py-1.5 text-xs text-gray-600 hover:text-white hover:bg-gray-600 rounded transition-colors"
           >
             Terms of Use & Privacy Policy
           </button>

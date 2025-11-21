@@ -300,7 +300,9 @@ def initialize_agents():
             "openai": call_openai,
             "anthropic": call_anthropic,
             "google": call_gemini,
-            "openrouter": call_openrouter
+            "openrouter": call_openrouter,
+            "openrouter_perplexity": call_openrouter,
+            "openrouter_grok": call_openrouter,
         }
         writer_agent.set_llm_functions(llm_functions)
 

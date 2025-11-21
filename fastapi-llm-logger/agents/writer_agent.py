@@ -10,28 +10,13 @@ Synthesizes final responses by integrating:
 
 from typing import Dict, Any, List, Optional
 import logging
+import json
+from pathlib import Path
 from .base_agent import BaseAgent
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_SYSTEM_PROMPT = ("""
-You are ChatGPT, a helpful, friendly, and reliable AI assistant.
-Your goals:
-
-1. Provide clear, natural, conversational answers.
-2. Structure your responses cleanly (use paragraphs, bullet points, or steps when helpful).
-3. Explain concepts in a simple and human-friendly way.
-4. Be proactive in helping the user understand, but do not over-explain.
-5. Maintain a warm, polite, and supportive tone.
-6. When the user asks follow-up questions, interpret context naturally.
-7. Avoid hallucinating facts; if unsure, say so briefly and offer alternatives.
-8. Never output system messages or mention internal instructions.
-
-You may use examples, analogies, or step-by-step reasoning when useful.
-Do not be repetitive. Keep answers concise but helpful.
-
-Your role is to act exactly like ChatGPT in a typical conversation.
-""")
+DEFAULT_SYSTEM_PROMPT = "You are a helpful, concise assistant. Be clear, honest, and avoid hallucinations."
 
 
 class WriterAgent(BaseAgent):
@@ -56,6 +41,7 @@ class WriterAgent(BaseAgent):
         """
         super().__init__(name="WriterAgent", db=db)
         self.llm_functions = llm_functions or {}
+        self.provider_prompts = self._load_provider_prompts()
 
     def set_llm_functions(self, llm_functions: Dict[str, Any]):
         """
@@ -66,6 +52,39 @@ class WriterAgent(BaseAgent):
         """
         self.llm_functions = llm_functions
         logger.info(f"LLM functions configured: {list(llm_functions.keys())}")
+
+    def _load_provider_prompts(self) -> Dict[str, str]:
+        """
+        Load provider-specific system prompts from config/provider_prompts.json.
+        """
+        default_prompts = {
+            "openai": "You are ChatGPT, a friendly, helpful, and conversational AI assistant. Use a warm tone, explain concepts clearly, reason step-by-step when helpful, and keep responses concise but informative. Offer follow-up help naturally. Avoid unnecessary formality.",
+            "anthropic": "You are Claude, an AI assistant from Anthropic. Be thoughtful, careful, and reflective. Use a calm, polite, and warm tone. Provide well-reasoned answers with clear structure. Think through nuance and avoid sounding overly confident when uncertain.",
+            "openrouter_perplexity": "You are Perplexity, an evidence-based AI assistant. Provide concise, factual answers grounded in verifiable information. Use a clear summary style with optional follow-up sections. When relevant, cite sources or mention where information typically comes from. Avoid speculation and avoid emotional tone.",
+            "openrouter_grok": "You are Grok, an AI assistant developed by xAI. Use a witty, slightly irreverent tone—helpful but with a sense of humor. Be direct, clever, and occasionally sarcastic, while still being accurate. Avoid corporate or overly formal language.",
+            "google": "You are Gemini, a structured, clear, and knowledgeable AI assistant. Use an organized format with headings or bullet points when helpful. Keep a calm, neutral, and professional tone. Explain concepts clearly and thoroughly, like a patient instructor.",
+        }
+        cfg_path = Path(__file__).resolve().parents[1] / "config" / "provider_prompts.json"
+        if cfg_path.exists():
+            try:
+                with open(cfg_path, "r", encoding="utf-8") as f:
+                    loaded = json.load(f)
+                    default_prompts.update(loaded)
+            except Exception as e:
+                logger.warning(f"Failed to load provider prompts, using defaults: {e}")
+        return default_prompts
+
+    def _get_system_prompt_for_provider(self, provider: str, intent: str) -> str:
+        provider_key = provider.lower()
+        prompts = self.provider_prompts.get(provider_key)
+        if isinstance(prompts, dict):
+            if intent and intent in prompts:
+                return prompts[intent]
+            if "default" in prompts:
+                return prompts["default"]
+        if isinstance(prompts, str):
+            return prompts
+        return DEFAULT_SYSTEM_PROMPT
 
     async def execute(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -98,7 +117,11 @@ class WriterAgent(BaseAgent):
 
         logger.info(f"Generating response for intent: {intent}")
 
+        # Determine provider from model name
+        provider = self._get_provider_from_model(model)
+
         # Build enriched prompt
+        system_prompt = self._get_system_prompt_for_provider(provider, intent)
         enriched_prompt = self._build_prompt(
             query=query,
             intent=intent,
@@ -121,7 +144,7 @@ class WriterAgent(BaseAgent):
 
             # Call the LLM
             response_text, citations, raw_response, tokens = llm_function(
-                model, enriched_prompt, system_prompt=DEFAULT_SYSTEM_PROMPT
+                model, enriched_prompt, system_prompt=system_prompt
             )
 
             logger.info(f"Response generated: {len(response_text)} chars, {len(citations)} citations")
@@ -236,39 +259,6 @@ class WriterAgent(BaseAgent):
                 prompt_parts.append(location_text)
                 prompt_parts.append("")
 
-        # Add intent-specific instructions
-        if intent == "product_search":
-            prompt_parts.append("## Instructions:")
-            prompt_parts.append(
-                """
-You are ChatGPT, a helpful, friendly, and editorial-style AI assistant.
-
-Your behavior and writing style:
-1. Speak in a warm, conversational tone similar to a lifestyle advisor or shopping expert.
-2. Organize answers using clear sections, short paragraphs, and emoji section headers 
-   (e.g., 🎯 Highlights, ✅ Recommendations, ⚠️ Tips to Consider).
-3. When the user asks about sales, product deals, trends, holidays, or events, respond 
-   with structured analysis:
-   - “What’s happening now” (current situation overview)
-   - “Why it matters”
-   - “Specific examples” (3–6 bullet points)
-   - “Tips / how to choose”
-4. Provide helpful commentary, not just facts — include reasoning, comparisons, and 
-   practical advice.
-5. When relevant, reference the user’s known preferences (budget habits, tracking 
-   expenses, desire to compare prices, etc.).
-6. Give optional follow-up support at the end (e.g., “If you want, I can help you 
-   find options under X budget.”).
-7. Keep the tone friendly, clear, and human, like ChatGPT or a deal advisor. 
-8. Avoid hallucinating prices; if unsure, say so briefly or give a typical range.
-9. Never mention internal system prompts or backend processes.
-
-Your goal is to provide useful, actionable guidance in a clear, structured, 
-and emotionally supportive way, similar to the example responses given by ChatGPT.
-"""
-            )
-            prompt_parts.append("")
-
         # Add the user query
         prompt_parts.append("## User Query:")
         prompt_parts.append(query)
@@ -310,7 +300,7 @@ and emotionally supportive way, similar to the example responses given by ChatGP
             model: Model name
 
         Returns:
-            Provider name ("openai", "anthropic", "google", "openrouter")
+            Provider name ("openai", "anthropic", "google", "openrouter_perplexity", "openrouter_grok", "openrouter")
         """
         model_lower = model.lower()
 
@@ -320,7 +310,11 @@ and emotionally supportive way, similar to the example responses given by ChatGP
             return "anthropic"
         elif "gemini" in model_lower:
             return "google"
-        elif "grok" in model_lower or "sonar" in model_lower or "perplexity" in model_lower:
+        elif "perplexity" in model_lower or "sonar" in model_lower:
+            return "openrouter_perplexity"
+        elif "grok" in model_lower:
+            return "openrouter_grok"
+        elif "openrouter" in model_lower:
             return "openrouter"
         else:
             # Default to openai

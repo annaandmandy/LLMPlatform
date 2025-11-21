@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, CSSProperties } from "react";
+import React, { useState, CSSProperties, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import ProductCard from "./ProductCard";
@@ -49,7 +49,22 @@ export default function MessageHistory({
 }: MessageHistoryProps) {
   const [clickedLinks, setClickedLinks] = useState<Set<string>>(new Set());
   const [expandedSources, setExpandedSources] = useState<Set<number>>(new Set());
+  const [thinkingActive, setThinkingActive] = useState(false);
+  const [showReasoning, setShowReasoning] = useState(false);
   const typingDotStyle = (delay: number): CSSProperties => ({ animationDelay: `${delay}s` });
+
+  // Simulate Claude-like reasoning overlay
+  useEffect(() => {
+    if (isLoading) {
+      setThinkingActive(true);
+    } else if (thinkingActive) {
+      setThinkingActive(false);
+      setShowReasoning(true);
+      // auto-hide after brief delay
+      const timer = setTimeout(() => setShowReasoning(false), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [isLoading]);
 
   const toggleSources = (index: number) => {
     const updated = new Set(expandedSources);
@@ -137,6 +152,29 @@ export default function MessageHistory({
 
   return (
     <div className="p-6 space-y-4">
+      {(thinkingActive || showReasoning) && (
+        <div className="bg-gray-100 border border-gray-200 rounded-lg p-3 text-sm text-gray-700">
+          <div className="flex items-center justify-between">
+            <span className="font-semibold text-gray-800">
+              {thinkingActive ? "Thinking..." : "Reasoning"}
+            </span>
+            {!thinkingActive && (
+              <button
+                onClick={() => setShowReasoning(false)}
+                className="text-xs text-gray-500 hover:text-gray-700"
+              >
+                Dismiss
+              </button>
+            )}
+          </div>
+          <p className="mt-1 text-gray-700">
+            {thinkingActive
+              ? "Model is analyzing and planning the response."
+              : "Thought process finished. Showing summarized response below."}
+          </p>
+        </div>
+      )}
+
       {messages.map((message, index) => {
         const queryContext =
           message.role === "user"
@@ -154,14 +192,18 @@ export default function MessageHistory({
               message.role === "user" ? "justify-end" : "justify-start"
             }`}
           >
-            <div className="max-w-[80%] flex flex-col gap-3">
+            <div
+              className={`${
+                message.role === "user" ? "max-w-[75%] ml-auto" : "w-full"
+              } flex flex-col gap-3`}
+            >
               {/* Message Bubble */}
               <div
-                className={`rounded-lg px-4 py-3 ${
+                className={
                   message.role === "user"
-                    ? "bg-blue-600 text-white"
-                    : "bg-white text-gray-800 shadow-md border border-gray-200"
-                }`}
+                    ? "max-w-[85%] ml-auto px-4 py-2.5 rounded-2xl bg-white border border-slate-200 shadow-sm text-slate-900 mb-3"
+                    : "bg-transparent text-gray-800"
+                }
               >
                 <div className="prose prose-sm max-w-none">
                   {message.role === "assistant"
@@ -250,21 +292,28 @@ export default function MessageHistory({
 
       {isLoading && (
         <div className="flex justify-start">
-          <div className="max-w-[80%]">
-            <div className="rounded-lg px-4 py-3 bg-white text-gray-500 shadow-md border border-gray-200">
+          <div className="max-w-[75%]">
+            <div className="
+              rounded-xl
+              px-4 py-3
+              bg-white/90
+              backdrop-blur-sm
+              border border-gray-300/60
+              shadow-sm
+              text-gray-700
+            ">
               <div className="flex items-center gap-2">
-                <span className="text-gray-700">Assistant is thinking</span>
+                <span className="font-medium text-gray-800">Assistant is thinking</span>
                 <div className="flex gap-1" aria-label="Loading">
-                  <span className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" />
-                  <span className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={typingDotStyle(0.15)} />
-                  <span className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={typingDotStyle(0.3)} />
+                  <span className="w-2.5 h-2.5 rounded-full bg-gray-400 animate-bounce" />
+                  <span className="w-2.5 h-2.5 rounded-full bg-gray-400 animate-bounce" style={typingDotStyle(0.15)} />
+                  <span className="w-2.5 h-2.5 rounded-full bg-gray-400 animate-bounce" style={typingDotStyle(0.3)} />
                 </div>
               </div>
             </div>
           </div>
         </div>
       )}
-
       <div ref={messagesEndRef} />
     </div>
   );

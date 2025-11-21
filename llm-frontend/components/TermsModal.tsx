@@ -123,7 +123,7 @@ export default function TermsModal({ isOpen, onAccept, onDecline }: TermsModalPr
           )}
           <button
             onClick={onAccept}
-            className="flex-1 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
+            className="flex-1 px-6 py-3 bg-blue-500 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
           >
             Agree and Continue
           </button>

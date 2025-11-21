@@ -363,7 +363,7 @@ export default function Home() {
 
       {/* Main content area */}
       <main
-        className={`flex-1 flex flex-col bg-gradient-to-br from-blue-50 to-indigo-100 transition-all duration-300 overflow-hidden ${
+        className={`flex-1 flex flex-col bg-gradient-to-br from-slate-200 via-white to-slate-200 transition-all duration-300 overflow-hidden ${
           sidebarOpen ? "lg:ml-64" : ""
         }`}
       >
@@ -382,7 +382,7 @@ export default function Home() {
               </div>
 
               {/* Centered Query Box */}
-              <div className="bg-white rounded-xl shadow-lg p-6">
+              <div className="rounded-xlp-6">
                 <QueryBox
                   query={query}
                   setQuery={setQuery}
@@ -426,7 +426,7 @@ export default function Home() {
             </div>
 
             {/* Query box - fixed at bottom */}
-            <div className="flex-shrink-0 bg-white border-t border-gray-200">
+            <div className="flex-shrink-0">
               <div className="max-w-4xl w-full mx-auto p-4">
                 <QueryBox
                   query={query}

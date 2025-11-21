@@ -270,128 +270,99 @@ export default function QueryBox({
   const currentModel = AVAILABLE_MODELS.find((m) => m.id === selectedModel) || AVAILABLE_MODELS[0];
 
   return (
-    <div className="w-full">
-      <form onSubmit={handleSubmit} className="space-y-3">
-        {/* Model Selector */}
-        <div className="flex items-center justify-between">
-          <div className="text-sm text-gray-600">
-            Model:{" "}
-            <span className="font-semibold text-gray-800">
-              {currentModel?.name}
-            </span>
-          </div>
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setShowModelSelector(!showModelSelector)}
-              className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md transition-colors flex items-center gap-2"
-            >
-              Change Model
-              <svg
-                className={`w-4 h-4 transition-transform ${showModelSelector ? "rotate-180" : ""}`}
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
+    <form onSubmit={handleSubmit} className="w-full">
+      <div className="flex items-center gap-3 bg-white rounded-2xl shadow-sm border border-gray-200 px-4 py-3">
 
-            {showModelSelector && (
-            <div className="absolute right-0 bottom-full mb-2 w-64 bg-white rounded-lg shadow-xl border border-gray-200 z-10 max-h-80 overflow-y-auto">
-              <div className="p-2">
-                {AVAILABLE_MODELS.map((model) => (
-                  <button
-                    key={model.id}
-                    type="button"
-                    onClick={() => {
-                      setSelectedModel(model.id);
-                      setShowModelSelector(false);
-                    }}
-                    className={`w-full text-left px-3 py-2 rounded-md transition-colors ${
-                      selectedModel === model.id
-                        ? "bg-blue-100 text-blue-800"
-                        : "hover:bg-gray-100 text-gray-700"
-                    }`}
-                  >
-                    <div className="font-medium">{model.name}</div>
-                    <div className="text-xs text-gray-500">{model.provider}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+        {/* Left Icons */}
+        <div className="flex items-center gap-3 text-gray-500">
+          {/* Model Selector Icon */}
+          <button
+            type="button"
+            onClick={() => setShowModelSelector(!showModelSelector)}
+            className="hover:text-gray-700 transition"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M4 7h12M4 12h16M4 17h10" />
+            </svg>
+          </button>
 
-          </div>
-        </div>
-
-        {/* Attachments */}
-        {attachments.length > 0 && (
-          <div className="flex flex-wrap gap-3">
-            {attachments.map((a) => (
-              <div key={a.name} className="relative w-20 h-20 rounded-lg overflow-hidden border border-gray-200">
-                <img src={a.previewUrl} alt={a.name} className="w-full h-full object-cover" />
-                <button
-                  type="button"
-                  onClick={() => removeAttachment(a.name)}
-                  className="absolute -top-2 -right-2 bg-white text-gray-700 rounded-full shadow p-1"
-                  aria-label="Remove attachment"
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Input Area */}
-        <div className="flex gap-2">
-          <label className="flex items-center justify-center w-12 h-12 bg-white border border-gray-300 rounded-lg hover:bg-gray-100 cursor-pointer transition-colors">
-            <input
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={handleFileChange}
-            />
-            <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+          {/* Attachment */}
+          <label className="cursor-pointer hover:text-gray-700 transition">
+            <input type="file" accept="image/*" className="hidden" onChange={handleFileChange}/>
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+                d="M4 5h16v14H4z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+                d="M4 15l4-4 3 3 5-5 4 4" />
+              <circle cx="9" cy="9" r="1.5" />
             </svg>
           </label>
-          <textarea
-            id="query"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Type your message..."
-            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none text-gray-800"
-            rows={2}
-            disabled={isLoading}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                handleSubmit(e);
-              }
-            }}
-          />
+        </div>
+
+        {/* Input */}
+        <textarea
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={`Message ${currentModel?.name}`}
+          rows={1}
+          className="flex-1 resize-none bg-transparent focus:outline-none text-gray-800 placeholder-gray-400"
+          disabled={isLoading}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              handleSubmit(e);
+            }
+          }}
+        />
+
+        {/* Right Icons */}
+        <div className="flex items-center gap-3">
+
+          {/* Send */}
           <button
             type="submit"
             disabled={isLoading || !query.trim()}
-            className="px-6 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-semibold rounded-lg transition-colors duration-200 flex items-center justify-center"
+            className="w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition disabled:opacity-40 disabled:hover:bg-gray-100"
           >
             {isLoading ? (
-              <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              <svg className="animate-spin w-5 h-5 text-gray-500" viewBox="0 0 24 24">
+                <circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                <path className="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
               </svg>
             ) : (
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+              <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2z"/>
               </svg>
             )}
           </button>
         </div>
+      </div>
 
-        {error && <div className="text-red-600 text-sm bg-red-50 p-2 rounded-lg">{error}</div>}
-      </form>
-    </div>
+      {/* Model Selector Dropdown */}
+      {showModelSelector && (
+        <div className="mt-2 bg-white rounded-xl shadow-lg border border-gray-200 p-2 w-64">
+          {AVAILABLE_MODELS.map((model) => (
+            <button
+              key={model.id}
+              type="button"
+              onClick={() => {
+                setSelectedModel(model.id);
+                setShowModelSelector(false);
+              }}
+              className={`w-full text-left px-3 py-2 rounded-lg transition ${
+                selectedModel === model.id ? 'bg-blue-100 text-blue-800' : 'hover:bg-gray-100'
+              }`}
+            >
+              <div className="font-medium">{model.name}</div>
+              <div className="text-xs text-gray-500">{model.provider}</div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {error && <div className="text-red-600 text-sm mt-2">{error}</div>}
+    </form>
   );
+
+
 }

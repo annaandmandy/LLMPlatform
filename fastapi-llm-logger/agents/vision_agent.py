@@ -23,6 +23,7 @@ class VisionAgent(BaseAgent):
         super().__init__(name="VisionAgent", db=db)
         self.model = model or "gpt-4o-mini"
         self._client: Optional[OpenAI] = None
+        self._disabled = False
 
     def _get_client(self) -> OpenAI:
         if self._client is None:
@@ -32,6 +33,8 @@ class VisionAgent(BaseAgent):
     async def execute(self, request: Dict[str, Any]) -> Dict[str, Any]:
         query = request.get("query", "")
         attachments = request.get("attachments", [])
+        if self._disabled:
+            return {"vision_notes": ""}
         if not attachments:
             return {"vision_notes": ""}
 
@@ -67,5 +70,10 @@ class VisionAgent(BaseAgent):
                 return {"vision_notes": resp.choices[0].message.content.strip()}
             return {"vision_notes": ""}
         except Exception as e:
-            logger.warning(f"VisionAgent failed: {e}")
+            msg = str(e).lower()
+            if "input-images" in msg and "limit 0" in msg:
+                logger.warning("VisionAgent disabled due to zero image quota")
+                self._disabled = True
+            else:
+                logger.warning(f"VisionAgent failed: {e}")
             return {"vision_notes": ""}
