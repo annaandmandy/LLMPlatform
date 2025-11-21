@@ -13,11 +13,13 @@ from .coordinator import CoordinatorAgent
 from .memory_agent import MemoryAgent
 from .product_agent import ProductAgent
 from .writer_agent import WriterAgent
+from .vision_agent import VisionAgent
 
 __all__ = [
     'BaseAgent',
     'CoordinatorAgent',
     'MemoryAgent',
     'ProductAgent',
-    'WriterAgent'
+    'WriterAgent',
+    'VisionAgent',
 ]

@@ -63,6 +63,51 @@ interface AttachedMedia {
   size: number;
 }
 
+const MAX_IMAGE_DIMENSION = 1200; // px
+const MAX_IMAGE_BYTES = 1.5 * 1024 * 1024; // ~1.5MB
+
+const dataUrlByteLength = (dataUrl: string) => {
+  const base64 = dataUrl.split(",")[1] || "";
+  return Math.ceil((base64.length * 3) / 4);
+};
+
+async function resizeImageIfNeeded(
+  dataUrl: string,
+  mime: string,
+  maxDim = MAX_IMAGE_DIMENSION,
+  maxBytes = MAX_IMAGE_BYTES,
+): Promise<{ dataUrl: string; mime: string; size: number }> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const { width, height } = img;
+      const needsResize = width > maxDim || height > maxDim || dataUrlByteLength(dataUrl) > maxBytes;
+      if (!needsResize) {
+        resolve({ dataUrl, mime, size: dataUrlByteLength(dataUrl) });
+        return;
+      }
+
+      const scale = Math.min(maxDim / width, maxDim / height, 1);
+      const targetW = Math.round(width * scale);
+      const targetH = Math.round(height * scale);
+      const canvas = document.createElement("canvas");
+      canvas.width = targetW;
+      canvas.height = targetH;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        resolve({ dataUrl, mime, size: dataUrlByteLength(dataUrl) });
+        return;
+      }
+      ctx.drawImage(img, 0, 0, targetW, targetH);
+      const outMime = mime === "image/png" ? "image/png" : "image/jpeg";
+      const outDataUrl = canvas.toDataURL(outMime, 0.82);
+      resolve({ dataUrl: outDataUrl, mime: outMime, size: dataUrlByteLength(outDataUrl) });
+    };
+    img.onerror = () => resolve({ dataUrl, mime, size: dataUrlByteLength(dataUrl) });
+    img.src = dataUrl;
+  });
+}
+
 // ✅ Expanded models with provider info (and web-search enabled)
 const AVAILABLE_MODELS = [
   { id: "gpt-4o-mini-search-preview", name: "GPT-4o mini", provider: "openai" },
@@ -101,15 +146,21 @@ export default function QueryBox({
         (file) =>
           new Promise<AttachedMedia>((resolve, reject) => {
             const reader = new FileReader();
-            reader.onload = () => {
-              resolve({
-                name: file.name,
-                type: "image",
-                previewUrl: reader.result as string,
-                dataUrl: reader.result as string,
-                mime: file.type,
-                size: file.size,
-              });
+            reader.onload = async () => {
+              try {
+                const originalUrl = reader.result as string;
+                const resized = await resizeImageIfNeeded(originalUrl, file.type);
+                resolve({
+                  name: file.name,
+                  type: "image",
+                  previewUrl: resized.dataUrl,
+                  dataUrl: resized.dataUrl,
+                  mime: resized.mime,
+                  size: resized.size,
+                });
+              } catch (err) {
+                reject(err || new Error("Failed to process image"));
+              }
             };
             reader.onerror = () => reject(reader.error || new Error("Failed to read file"));
             reader.readAsDataURL(file);

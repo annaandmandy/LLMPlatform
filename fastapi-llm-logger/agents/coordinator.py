@@ -34,8 +34,9 @@ class CoordinatorAgent(BaseAgent):
         self.memory_agent = None
         self.product_agent = None
         self.writer_agent = None
+        self.vision_agent = None
 
-    def set_agents(self, memory_agent, product_agent, writer_agent):
+    def set_agents(self, memory_agent, product_agent, writer_agent, vision_agent=None):
         """
         Set references to specialized agents.
 
@@ -43,10 +44,12 @@ class CoordinatorAgent(BaseAgent):
             memory_agent: MemoryAgent instance
             product_agent: ProductAgent instance
             writer_agent: WriterAgent instance
+            vision_agent: VisionAgent instance (optional)
         """
         self.memory_agent = memory_agent
         self.product_agent = product_agent
         self.writer_agent = writer_agent
+        self.vision_agent = vision_agent
         logger.info(f"{self.name} agents configured")
 
     async def execute(self, request: Dict[str, Any]) -> Dict[str, Any]:
@@ -75,6 +78,7 @@ class CoordinatorAgent(BaseAgent):
         history = request.get("history", [])
         model = request.get("model", "gpt-4o-mini-search-preview")
         attachments = request.get("attachments", [])
+        vision_notes = ""
 
         logger.info(f"Processing query: {query[:100]}...")
 
@@ -114,6 +118,23 @@ class CoordinatorAgent(BaseAgent):
             except Exception as e:
                 logger.warning(f"MemoryAgent retrieval failed: {e}")
 
+        # Vision step: summarize attachments if present
+        if self.vision_agent and attachments:
+            try:
+                vision_result = await self.vision_agent.run(
+                    {
+                        "query": query,
+                        "attachments": attachments,
+                        "session_id": session_id,
+                        "user_id": user_id,
+                    }
+                )
+                vision_output = vision_result.get("output") or {}
+                vision_notes = vision_output.get("vision_notes", "")
+                agents_used.append("VisionAgent")
+            except Exception as e:
+                logger.warning(f"VisionAgent failed: {e}")
+
         # Step 2: Route based on intent
         if intent == "product_search":
             # Product search flow: leverage ProductAgent dual-output prompt for structured data
@@ -124,6 +145,7 @@ class CoordinatorAgent(BaseAgent):
                 "intent": intent,
                 "product_cards": None,
                 "memory_context": memory_context,
+                "vision_notes": vision_notes,
                 "attachments": attachments,
             }
             writer_result = await self.writer_agent.run(writer_request)
@@ -150,6 +172,7 @@ class CoordinatorAgent(BaseAgent):
                 "intent": intent,
                 "memory_context": memory_context,
                 "product_cards": None,
+                "vision_notes": vision_notes,
                 "attachments": attachments,
             }
             writer_result = await self.writer_agent.run(writer_request)
@@ -185,6 +208,8 @@ class CoordinatorAgent(BaseAgent):
 
         if memory_context:
             result["memory_context"] = memory_context
+        if vision_notes:
+            result["vision_notes"] = vision_notes
 
         logger.info(f"Request processed. Agents used: {', '.join(agents_used)}")
 

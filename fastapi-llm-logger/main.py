@@ -7,9 +7,10 @@ This backend handles:
 - Data export for analysis
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 import asyncio
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict
 from typing import Optional, Dict, Any, List
 from datetime import datetime
@@ -17,8 +18,10 @@ import os
 import json
 import logging
 import warnings
+from pathlib import Path
 from dotenv import load_dotenv
 from pymongo import MongoClient, ReturnDocument
+from bson import ObjectId
 import requests
 from openai import OpenAI
 import anthropic
@@ -52,11 +55,23 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup_event():
     """Initialize multi-agent system on startup"""
+    try:
+        UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        logger.warning(f"Unable to create upload directory {UPLOAD_DIR}: {e}")
     initialize_agents()
 
 # ==== MONGODB CONFIG ====
 MONGODB_URI = os.getenv("MONGODB_URI")
 MONGO_DB = os.getenv("MONGO_DB", "llm_experiment")
+UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "uploads"))
+MAX_FILE_SIZE_MB = float(os.getenv("MAX_FILE_SIZE_MB", "10"))
+ALLOWED_MIME_PREFIXES = ["image/", "text/", "application/pdf"]
+ALLOWED_MIME_TYPES = set(
+    (os.getenv("ALLOWED_MIME_TYPES") or "").split(",")
+    if os.getenv("ALLOWED_MIME_TYPES")
+    else []
+)
 
 try:
     mongo_client = MongoClient(MONGODB_URI)
@@ -71,6 +86,7 @@ try:
     products_collection = db["products"]
     agent_logs_collection = db["agent_logs"]
     memories_collection = db["memories"]
+    files_collection = db["files"]
 
     logger.info("✅ Connected to MongoDB")
 except Exception as e:
@@ -223,9 +239,35 @@ class MemoryPayload(AppBaseModel):
     key: str
     value: str
 
+def _validate_file(upload: UploadFile):
+    if not upload.content_type:
+        raise HTTPException(status_code=400, detail="Missing content type")
+    mime = upload.content_type.lower()
+    if ALLOWED_MIME_TYPES:
+        if mime not in ALLOWED_MIME_TYPES:
+            raise HTTPException(status_code=400, detail="File type not allowed")
+    else:
+        if not any(mime.startswith(prefix) for prefix in ALLOWED_MIME_PREFIXES):
+            raise HTTPException(status_code=400, detail="File type not allowed")
+
+def _save_upload(upload: UploadFile) -> Dict[str, Any]:
+    _validate_file(upload)
+    data = upload.file.read()
+    if len(data) > MAX_FILE_SIZE_MB * 1024 * 1024:
+        raise HTTPException(status_code=400, detail=f"File exceeds {MAX_FILE_SIZE_MB} MB limit")
+    safe_name = upload.filename or f"file_{datetime.utcnow().timestamp()}"
+    dest = UPLOAD_DIR / safe_name
+    counter = 1
+    while dest.exists():
+        dest = UPLOAD_DIR / f"{counter}_{safe_name}"
+        counter += 1
+    with open(dest, "wb") as f:
+        f.write(data)
+    return {"path": str(dest), "size": len(data), "mime": upload.content_type, "name": safe_name}
+
 
 # ==== MULTI-AGENT SYSTEM INITIALIZATION ====
-from agents import CoordinatorAgent, MemoryAgent, ProductAgent, WriterAgent
+from agents import CoordinatorAgent, MemoryAgent, ProductAgent, WriterAgent, VisionAgent
 from agents.writer_agent import DEFAULT_SYSTEM_PROMPT
 from utils.intent_classifier import detect_intent
 
@@ -250,6 +292,7 @@ def initialize_agents():
         memory_agent = MemoryAgent(db=db)
         product_agent = ProductAgent(db=db)
         writer_agent = WriterAgent(db=db)
+        vision_agent = VisionAgent(db=db)
         coordinator_agent = CoordinatorAgent(db=db)
 
         # Configure WriterAgent with LLM functions
@@ -262,7 +305,7 @@ def initialize_agents():
         writer_agent.set_llm_functions(llm_functions)
 
         # Link agents to coordinator
-        coordinator_agent.set_agents(memory_agent, product_agent, writer_agent)
+        coordinator_agent.set_agents(memory_agent, product_agent, writer_agent, vision_agent)
 
 
         logger.info("✅ Multi-agent system initialized successfully")
@@ -311,30 +354,38 @@ def call_openai(model: str, query: str, system_prompt: str | None = None, attach
 
     system_message = system_prompt or DEFAULT_SYSTEM_PROMPT
 
-    # Build user content with optional images (base64 data URLs)
-    user_content: Any
-    if attachments:
-        parts = [{"type": "text", "text": query}]
-        for att in attachments:
-            if att.get("type") == "image" and att.get("base64"):
-                parts.append(
-                    {"type": "image_url", "image_url": {"url": att["base64"]}}
-                )
-        user_content = parts
-    else:
-        user_content = query
-
-    messages = [
-        {"role": "system", "content": system_message},
-        {"role": "user", "content": user_content}
-    ]
+    def _build_messages(include_images: bool):
+        user_content: Any
+        if include_images and attachments:
+            parts = [{"type": "text", "text": query}]
+            for att in attachments:
+                if att.get("type") == "image" and att.get("base64"):
+                    parts.append({"type": "image_url", "image_url": {"url": att["base64"]}})
+            user_content = parts
+        else:
+            user_content = query
+        return [
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": user_content},
+        ]
 
     # Detect built-in search models
     use_chat_api = any(tag in model for tag in ["search-preview", "search-api"])
 
     if use_chat_api:
         # --- Chat Completions API for web-search-enabled models ---
-        response = client.chat.completions.create(model=model, messages=messages)
+        include_images = bool(attachments)
+        messages = _build_messages(include_images)
+        try:
+            response = client.chat.completions.create(model=model, messages=messages)
+        except Exception as err:
+            # If the account has zero image quota or hits image rate limits, retry without images
+            if include_images and "input-images" in str(err).lower():
+                logger.warning("Image quota/rate limit hit for OpenAI; retrying without images")
+                messages = _build_messages(False)
+                response = client.chat.completions.create(model=model, messages=messages)
+            else:
+                raise
         msg = response.choices[0].message
         text = msg.content or ""
         sources = []
@@ -1194,6 +1245,96 @@ async def delete_memory(key: str, user_id: str):
     if db is None:
         raise HTTPException(status_code=503, detail="Database not connected")
     await asyncio.to_thread(db.memories.delete_one, {"user_id": user_id, "key": key})
+    return {"status": "ok"}
+
+
+# ==== FILES (upload/list/download) ====
+@app.post("/files")
+async def upload_file(
+    user_id: str = Form(...),
+    session_id: Optional[str] = Form(None),
+    file: UploadFile = File(...),
+):
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+
+    saved = _save_upload(file)
+    doc = {
+        "user_id": user_id,
+        "session_id": session_id,
+        "name": saved["name"],
+        "path": saved["path"],
+        "mime": saved["mime"],
+        "size": saved["size"],
+        "created_at": datetime.utcnow(),
+    }
+    result = await asyncio.to_thread(files_collection.insert_one, doc)
+    file_id = str(result.inserted_id)
+    return {
+        "file_id": file_id,
+        "name": saved["name"],
+        "mime": saved["mime"],
+        "size": saved["size"],
+    }
+
+
+@app.get("/files")
+async def list_files(user_id: str):
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+    cursor = files_collection.find({"user_id": user_id}).sort("created_at", -1)
+    items = await asyncio.to_thread(list, cursor)
+    files_out = []
+    for item in items:
+        files_out.append(
+            {
+                "file_id": str(item.get("_id")),
+                "name": item.get("name"),
+                "mime": item.get("mime"),
+                "size": item.get("size"),
+                "created_at": item.get("created_at"),
+                "session_id": item.get("session_id"),
+            }
+        )
+    return {"files": files_out}
+
+
+@app.get("/files/{file_id}")
+async def download_file(file_id: str, user_id: str):
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+    try:
+        oid = ObjectId(file_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid file id")
+
+    doc = files_collection.find_one({"_id": oid, "user_id": user_id})
+    if not doc:
+        raise HTTPException(status_code=404, detail="File not found")
+    path = Path(doc["path"])
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="File missing on server")
+    return FileResponse(path, media_type=doc.get("mime") or "application/octet-stream", filename=doc.get("name"))
+
+
+@app.delete("/files/{file_id}")
+async def delete_file(file_id: str, user_id: str):
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+    try:
+        oid = ObjectId(file_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid file id")
+    doc = files_collection.find_one({"_id": oid, "user_id": user_id})
+    if not doc:
+        raise HTTPException(status_code=404, detail="File not found")
+    path = Path(doc["path"])
+    if path.exists():
+        try:
+            path.unlink()
+        except Exception as e:
+            logger.warning(f"Failed to delete file from disk: {e}")
+    await asyncio.to_thread(files_collection.delete_one, {"_id": oid, "user_id": user_id})
     return {"status": "ok"}
 
 
