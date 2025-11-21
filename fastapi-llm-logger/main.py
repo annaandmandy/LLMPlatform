@@ -218,6 +218,7 @@ class SessionEndRequest(AppBaseModel):
 # ==== MULTI-AGENT SYSTEM INITIALIZATION ====
 from agents import CoordinatorAgent, MemoryAgent, ProductAgent, WriterAgent
 from agents.writer_agent import DEFAULT_SYSTEM_PROMPT
+from utils.intent_classifier import detect_intent
 
 # Initialize agents
 coordinator_agent = None
@@ -668,7 +669,10 @@ async def query_llm(request: QueryRequest):
         history_count = len(history_messages)
 
         use_memory = bool(request.use_memory)
-        use_product_search = bool(request.use_product_search)
+        # Intent detection (LLM/embedding backed, see utils/intent_classifier.py)
+        intent_info = await detect_intent(request.query)
+        intent_label = intent_info.get("intent", "general")
+        use_product_search = intent_label == "product_search"
         location_data = request.location.model_dump(exclude_none=True) if request.location else None
         if location_data is None and sessions_collection is not None:
             session_env = sessions_collection.find_one(
@@ -681,12 +685,6 @@ async def query_llm(request: QueryRequest):
 
         processed_query = request.query
         history_for_agents = history_messages[-6:] if use_memory else []
-
-        intent_label = "product_search" if use_product_search else "general"
-        intent_info = {
-            "intent": intent_label,
-            "confidence": 1.0
-        }
 
         # Try using multi-agent system first
         if location_data and sessions_collection is not None:

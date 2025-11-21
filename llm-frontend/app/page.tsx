@@ -62,7 +62,6 @@ export default function Home() {
   const [experimentDraft, setExperimentDraft] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [selectedModel, setSelectedModel] = useState("gpt-4o-mini");
-  const [useProductSearch, setUseProductSearch] = useState(false);
   const [location, setLocation] = useState<LocationData | null>(null);
   const [locationReady, setLocationReady] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -398,8 +397,6 @@ export default function Home() {
                   selectedModel={selectedModel}
                   setSelectedModel={setSelectedModel}
                   messages={messages}
-                  useProductSearch={useProductSearch}
-                  setUseProductSearch={setUseProductSearch}
                   location={location}
                 />
               </div>
@@ -445,8 +442,6 @@ export default function Home() {
                   selectedModel={selectedModel}
                   setSelectedModel={setSelectedModel}
                   messages={messages}
-                  useProductSearch={useProductSearch}
-                  setUseProductSearch={setUseProductSearch}
                   location={location}
                 />
               </div>

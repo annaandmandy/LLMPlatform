@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 SERPAPI_KEY = os.getenv("SERPAPI_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PRODUCT_EXTRACTION_MODEL = os.getenv("PRODUCT_EXTRACTION_MODEL", "gpt-4o-mini")
+PRODUCT_SEARCH_TIMEOUT = float(os.getenv("PRODUCT_SEARCH_TIMEOUT", "10"))
 EXTRACTION_SYSTEM_PROMPT = (
     "You read a passage and identify up to 5 concrete consumer products or brand models mentioned. "
     "For each product, also infer the general product category (e.g., water bottle, running shoes, travel pillow). "
@@ -201,7 +202,7 @@ class ProductAgent(BaseAgent):
 
             logger.info(f"Searching Google Shopping for: {product_name}")
 
-            res = requests.get(url, params=params, timeout=10)
+            res = requests.get(url, params=params, timeout=PRODUCT_SEARCH_TIMEOUT)
             data = res.json()
 
             products = []
@@ -228,6 +229,14 @@ class ProductAgent(BaseAgent):
 
             return products
 
+        except requests.Timeout:
+            logger.warning(
+                f"Product search timeout after {PRODUCT_SEARCH_TIMEOUT}s for '{product_name}'"
+            )
+            return []
+        except requests.RequestException as e:
+            logger.error(f"HTTP error searching for product '{product_name}': {str(e)}")
+            return []
         except Exception as e:
             logger.error(f"Error searching for product '{product_name}': {str(e)}")
             return []

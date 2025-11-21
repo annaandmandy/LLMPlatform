@@ -205,7 +205,6 @@ async def detect_intent(query: str, use_llm: Optional[bool] = None) -> Dict[str,
     should_use_llm = USE_LLM_INTENT if use_llm is None else use_llm
 
     if should_use_llm:
-        logger.info(f"used llm")
         result = await _classifier.classify_with_llm(query)
     else:
         result = _classifier.classify(query, use_llm=False)

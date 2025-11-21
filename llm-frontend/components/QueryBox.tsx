@@ -39,8 +39,6 @@ interface QueryBoxProps {
   setIsLoading: (loading: boolean) => void;
   selectedModel: string;
   setSelectedModel: (model: string) => void;
-  useProductSearch: boolean;
-  setUseProductSearch: (value: boolean) => void;
   location?: {
     latitude: number;
     longitude: number;
@@ -72,8 +70,6 @@ export default function QueryBox({
   setIsLoading,
   selectedModel,
   setSelectedModel,
-  useProductSearch,
-  setUseProductSearch,
   location,
   messages = [],
 }: QueryBoxProps) {
@@ -127,9 +123,8 @@ export default function QueryBox({
           model_name: currentModel.id,
           model_provider: modelProvider,
           web_search: true, // still pass through for legacy behavior
-          // Always include memory context bundle
+          // Always include memory context bundle; intent classifier handles product search server-side
           use_memory: true,
-          use_product_search: useProductSearch,
           history: historyPayload,
           location,
         }),
@@ -221,26 +216,7 @@ export default function QueryBox({
           </div>
         </div>
 
-        {/* Feature Toggles */}
-        <div className="flex flex-wrap gap-6 text-sm text-gray-700">
-          <div className="flex items-center gap-2">
-            <span className="font-medium">Product search</span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={useProductSearch}
-              onClick={() => setUseProductSearch(!useProductSearch)}
-              className={`w-12 h-6 rounded-full px-1 flex items-center transition-colors ${
-                useProductSearch ? "bg-blue-600 justify-end" : "bg-gray-300 justify-start"
-              }`}
-            >
-              <span className="w-5 h-5 bg-white rounded-full shadow-md transition-transform"></span>
-            </button>
-            <span className="text-xs text-gray-500">
-              {useProductSearch ? "Use Google SERP cards" : "General response"}
-            </span>
-          </div>
-        </div>
+        {/* Feature toggles removed; intent classifier decides routes */}
 
         {/* Input Area */}
         <div className="flex gap-2">
