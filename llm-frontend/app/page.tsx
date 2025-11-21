@@ -46,7 +46,6 @@ interface ChatSession {
 }
 
 const DEFAULT_EXPERIMENT_ID = "production_v1";
-const EXPERIMENT_ID_KEY = "experiment_id_global";
 
 interface LocationData {
   latitude: number;
@@ -140,18 +139,32 @@ export default function Home() {
     };
   }, [sessionId]);
 
+  // Load experiment ID per session from backend
   useEffect(() => {
-    const stored = localStorage.getItem(EXPERIMENT_ID_KEY);
-    if (stored) {
-      setExperimentId(stored);
-      setExperimentDraft(stored);
-      setShowExperimentModal(false);
-    } else {
+    const fetchExperiment = async () => {
+      if (!sessionId) return;
+      try {
+        const backendUrl = (process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000").replace(/\/$/, "");
+        const res = await fetch(`${backendUrl}/session/${sessionId}/experiment`);
+        if (res.ok) {
+          const data = await res.json();
+          const expId = data.experiment_id || "";
+          if (expId) {
+            setExperimentId(expId);
+            setExperimentDraft(expId);
+            setShowExperimentModal(false);
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn("Failed to fetch experiment id", err);
+      }
       setExperimentId("");
       setExperimentDraft("");
       setShowExperimentModal(true);
-    }
-  }, []);
+    };
+    fetchExperiment();
+  }, [sessionId]);
 
   // NEW: Initialize session-based tracking (using the same sessionId as chat)
   useSession({
@@ -186,10 +199,20 @@ export default function Home() {
     }
   }, [messages, sessionId]);
 
-  const persistExperiment = (value: string) => {
-    localStorage.setItem(EXPERIMENT_ID_KEY, value);
-    setExperimentId(value);
-    setShowExperimentModal(false);
+  const persistExperiment = async (value: string) => {
+    if (!sessionId) return;
+    try {
+      const backendUrl = (process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000").replace(/\/$/, "");
+      await fetch(`${backendUrl}/session/${sessionId}/experiment`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ experiment_id: value }),
+      });
+      setExperimentId(value);
+      setShowExperimentModal(false);
+    } catch (err) {
+      console.warn("Failed to save experiment id", err);
+    }
   };
 
   const handleExperimentSave = () => {
@@ -280,6 +303,9 @@ export default function Home() {
     setMessages([]);
     setQuery("");
     setMemoryContext(null);
+    setExperimentId("");
+    setExperimentDraft("");
+    setShowExperimentModal(true);
   };
 
   const handleSelectSession = (sId: string) => {
@@ -363,7 +389,7 @@ export default function Home() {
 
       {/* Main content area */}
       <main
-        className={`flex-1 flex flex-col bg-gradient-to-br from-slate-200 via-white to-slate-200 transition-all duration-300 overflow-hidden ${
+        className={`flex-1 flex flex-col bg-gradient-to-br from-slate-300 via-white to-slate-300 transition-all duration-300 overflow-hidden ${
           sidebarOpen ? "lg:ml-64" : ""
         }`}
       >
@@ -373,10 +399,10 @@ export default function Home() {
             <div className="max-w-3xl w-full space-y-8">
               {/* Centered Title */}
               <div className="text-center space-y-3">
-                <h1 className="text-4xl font-bold text-gray-800">
+                <h1 className="text-5xl font-bold text-gray-800">
                   LLM Brand Experiment
                 </h1>
-                <p className="text-gray-600 text-lg">
+                <p className="text-gray-600 text-lg p-8">
                   Explore brands and products with AI-powered insights
                 </p>
               </div>
@@ -410,6 +436,7 @@ export default function Home() {
               <p className="text-gray-600 text-sm">
                 Explore brands and products with AI-powered insights
               </p>
+              <small>{experimentId}</small>
             </header>
 
             {/* Message area */}

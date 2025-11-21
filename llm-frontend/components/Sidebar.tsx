@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import MemoryPanel from "./MemoryPanel";
+import { useRouter } from "next/navigation";
+
 
 interface ChatSession {
   id: string;
@@ -36,6 +38,7 @@ export default function Sidebar({
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showMemories, setShowMemories] = useState(false);
+  const router = useRouter();
 
   // Load chat sessions from localStorage
   const loadSessions = () => {
@@ -126,7 +129,7 @@ export default function Sidebar({
 
       {/* Sidebar */}
       <div
-        className={`fixed top-0 left-0 h-full bg-white text-slate-700 w-64 border-r border-gray-200 shadow-sm transform transition-transform duration-300 z-50 flex flex-col shadow-xl ${
+        className={`fixed top-0 left-0 h-full bg-white text-slate-700 w-80 border-r border-gray-200 shadow-sm transform transition-transform duration-300 z-50 flex flex-col shadow-xl ${
           isOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
@@ -158,36 +161,6 @@ export default function Sidebar({
             </svg>
             New Chat
           </button>
-          <a
-            href="/tokens"
-            className="w-full flex items-center gap-2 px-4 py-3 bg-purple-300 hover:bg-purple-400 rounded-lg transition-colors font-medium"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-            </svg>
-            Token Analytics
-          </a>
-          {/* <div className="pt-1">
-            <button
-              onClick={() => setShowMemories((prev) => !prev)}
-              className="w-full flex items-center justify-between px-3 py-2 bg-gray-600 hover:bg-gray-500 rounded-lg transition-colors text-sm"
-            >
-              <span className="font-medium text-gray-100">Memories</span>
-              <svg
-                className={`w-4 h-4 transition-transform ${showMemories ? "rotate-90" : ""}`}
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
-            </button>
-            {showMemories && (
-              <div className="mt-2">
-                <MemoryPanel userId={userId} />
-              </div>
-            )}
-          </div> */}
         </div>
 
         {/* Chat Sessions List */}
@@ -327,6 +300,12 @@ export default function Sidebar({
           >
             Terms of Use & Privacy Policy
           </button>
+          <button
+            onClick={() => router.push("/tokens")}
+            className="w-full text-left px-2 py-1.5 text-xs text-gray-600 hover:text-white hover:bg-gray-600 rounded transition-colors"
+          >
+            Token Analytics
+          </button>
         </div>
       </div>
 
@@ -334,11 +313,30 @@ export default function Sidebar({
       {!isOpen && (
         <button
           onClick={onToggle}
-          className="fixed top-4 left-4 z-30 p-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-colors shadow-lg"
+          className="
+            fixed top-4 left-4 z-30 
+            p-2.5 
+            bg-white 
+            border border-gray-300 
+            rounded-lg 
+            shadow-sm 
+            hover:bg-gray-100 
+            hover:border-gray-400 
+            transition 
+            text-gray-700
+          "
           aria-label="Open sidebar"
         >
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+          <svg
+            className="w-5 h-5 stroke-[1.5] text-gray-700"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              d="M4 7h16M4 12h16M4 17h16"
+            />
           </svg>
         </button>
       )}

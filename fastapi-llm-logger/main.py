@@ -239,6 +239,10 @@ class MemoryPayload(AppBaseModel):
     key: str
     value: str
 
+
+class ExperimentPayload(AppBaseModel):
+    experiment_id: str
+
 def _validate_file(upload: UploadFile):
     if not upload.content_type:
         raise HTTPException(status_code=400, detail="Missing content type")
@@ -1358,6 +1362,31 @@ async def get_session(session_id: str):
         session["end_time"] = session["end_time"].isoformat()
 
     return session
+
+
+@app.get("/session/{session_id}/experiment")
+async def get_session_experiment(session_id: str):
+    """Get experiment_id for a session"""
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+    session = sessions_collection.find_one({"session_id": session_id}, {"experiment_id": 1, "_id": 0})
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"experiment_id": session.get("experiment_id")}
+
+
+@app.patch("/session/{session_id}/experiment")
+async def update_session_experiment(session_id: str, payload: ExperimentPayload):
+    """Update experiment_id for a session"""
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+    result = sessions_collection.update_one(
+        {"session_id": session_id},
+        {"$set": {"experiment_id": payload.experiment_id}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"experiment_id": payload.experiment_id}
 
 
 @app.get("/export_data")

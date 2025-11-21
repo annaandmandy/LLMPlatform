@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Clarity from "@microsoft/clarity";
 
 interface Citation {
@@ -137,6 +137,40 @@ export default function QueryBox({
   const [error, setError] = useState("");
   const [showModelSelector, setShowModelSelector] = useState(false);
   const [attachments, setAttachments] = useState<AttachedMedia[]>([]);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const modelSelectorRef = useRef<HTMLDivElement>(null);
+
+  const logUIInteraction = async (action: string) => {
+    if (!sessionId) return;
+    try {
+      const backendUrl = (process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000").replace(/\/$/, "");
+      await fetch(`${backendUrl}/session/event`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: sessionId,
+          event: {
+            t: Date.now(),
+            type: "click",
+            data: { text: action, label: action },
+          },
+        }),
+      });
+    } catch (err) {
+      console.warn("Failed to log UI interaction", err);
+    }
+  };
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (!showModelSelector) return;
+      if (!modelSelectorRef.current) return;
+      if (modelSelectorRef.current.contains(e.target as Node)) return;
+      setShowModelSelector(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showModelSelector]);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
@@ -201,6 +235,8 @@ export default function QueryBox({
     setIsLoading(true);
     setError("");
 
+    logUIInteraction("send message");
+
     const userQuery = query;
     addMessage("user", userQuery, undefined, undefined, attachments.map((a) => ({ type: a.type, base64: a.dataUrl, name: a.name })));
     setQuery("");
@@ -264,6 +300,7 @@ export default function QueryBox({
       console.error("Error fetching query:", err);
     } finally {
       setIsLoading(false);
+      textareaRef.current?.focus();
     }
   };
 
@@ -271,6 +308,40 @@ export default function QueryBox({
 
   return (
     <form onSubmit={handleSubmit} className="w-full">
+      {/* Image Attachments Preview */}
+    {attachments.length > 0 && (
+      <div className="flex gap-3 mb-3 flex-wrap">
+        {attachments.map((a) => (
+          <div
+            key={a.name}
+            className="relative w-16 h-16 bg-gray-100 rounded-lg overflow-hidden border border-gray-300 shadow-sm"
+          >
+            <img
+              src={a.previewUrl}
+              alt={a.name}
+              className="w-full h-full object-cover"
+            />
+
+            {/* Remove Button */}
+            <button
+              type="button"
+              onClick={() => removeAttachment(a.name)}
+              className="absolute -top-1.5 -right-1.5 bg-white shadow-md text-gray-600 hover:text-red-500 rounded-full p-1"
+            >
+              <svg
+                className="w-3 h-3"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        ))}
+      </div>
+    )}
+
       <div className="flex items-center gap-3 bg-white rounded-2xl shadow-sm border border-gray-200 px-4 py-3">
 
         {/* Left Icons */}
@@ -278,7 +349,10 @@ export default function QueryBox({
           {/* Model Selector Icon */}
           <button
             type="button"
-            onClick={() => setShowModelSelector(!showModelSelector)}
+            onClick={() => {
+              setShowModelSelector(!showModelSelector);
+              logUIInteraction("model switch");
+            }}
             className="hover:text-gray-700 transition"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -287,7 +361,10 @@ export default function QueryBox({
           </button>
 
           {/* Attachment */}
-          <label className="cursor-pointer hover:text-gray-700 transition">
+          <label
+            className="cursor-pointer hover:text-gray-700 transition"
+            onClick={() => logUIInteraction("image upload")}
+          >
             <input type="file" accept="image/*" className="hidden" onChange={handleFileChange}/>
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
@@ -301,6 +378,7 @@ export default function QueryBox({
 
         {/* Input */}
         <textarea
+          ref={textareaRef}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder={`Message ${currentModel?.name}`}

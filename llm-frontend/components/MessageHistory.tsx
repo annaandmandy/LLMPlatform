@@ -64,7 +64,16 @@ export default function MessageHistory({
       const timer = setTimeout(() => setShowReasoning(false), 4000);
       return () => clearTimeout(timer);
     }
+    if (messagesEndRef?.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
   }, [isLoading]);
+
+  useEffect(() => {
+    if (messagesEndRef?.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages.length]);
 
   const toggleSources = (index: number) => {
     const updated = new Set(expandedSources);
