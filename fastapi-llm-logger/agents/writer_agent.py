@@ -81,6 +81,7 @@ class WriterAgent(BaseAgent):
         product_cards = request.get("product_cards", [])
         history = request.get("history", [])
         location = request.get("location")
+        attachments = request.get("attachments", [])
 
         logger.info(f"Generating response for intent: {intent}")
 
@@ -105,11 +106,20 @@ class WriterAgent(BaseAgent):
                 raise ValueError(f"No LLM function configured for provider: {provider}")
 
             # Call the LLM
-            response_text, citations, raw_response, tokens = llm_function(
-                model,
-                enriched_prompt,
-                system_prompt=DEFAULT_SYSTEM_PROMPT
-            )
+            call_kwargs = {
+                "model": model,
+                "query": enriched_prompt,
+                "system_prompt": DEFAULT_SYSTEM_PROMPT,
+            }
+            # Pass attachments to openai call when available
+            if provider == "openai" and attachments:
+                response_text, citations, raw_response, tokens = llm_function(
+                    model, enriched_prompt, system_prompt=DEFAULT_SYSTEM_PROMPT, attachments=attachments
+                )
+            else:
+                response_text, citations, raw_response, tokens = llm_function(
+                    model, enriched_prompt, system_prompt=DEFAULT_SYSTEM_PROMPT
+                )
 
             logger.info(f"Response generated: {len(response_text)} chars, {len(citations)} citations")
 

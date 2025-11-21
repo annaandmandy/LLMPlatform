@@ -8,6 +8,7 @@ This backend handles:
 """
 
 from fastapi import FastAPI, HTTPException
+import asyncio
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict
 from typing import Optional, Dict, Any, List
@@ -111,6 +112,7 @@ class QueryRequest(AppBaseModel):
     use_product_search: Optional[bool] = False
     history: Optional[List[MessageHistory]] = []  # NEW: Conversation history for multi-agent context
     location: Optional[LocationInfo] = None
+    attachments: Optional[List[Dict[str, Any]]] = None
 
 
 class LogEventRequest(AppBaseModel):
@@ -215,6 +217,13 @@ class SessionEndRequest(AppBaseModel):
     session_id: str
 
 
+# ==== MEMORIES CRUD (simple, user-scoped) ====
+class MemoryPayload(AppBaseModel):
+    user_id: str
+    key: str
+    value: str
+
+
 # ==== MULTI-AGENT SYSTEM INITIALIZATION ====
 from agents import CoordinatorAgent, MemoryAgent, ProductAgent, WriterAgent
 from agents.writer_agent import DEFAULT_SYSTEM_PROMPT
@@ -295,16 +304,29 @@ def format_location_text(location: Optional[Dict[str, Any]]) -> Optional[str]:
 
 
 # ==== HELPER FUNCTIONS ====
-def call_openai(model: str, query: str, system_prompt: str | None = None):
+def call_openai(model: str, query: str, system_prompt: str | None = None, attachments: Optional[List[Dict[str, Any]]] = None):
     from openai import OpenAI
     import os
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
     system_message = system_prompt or DEFAULT_SYSTEM_PROMPT
 
+    # Build user content with optional images (base64 data URLs)
+    user_content: Any
+    if attachments:
+        parts = [{"type": "text", "text": query}]
+        for att in attachments:
+            if att.get("type") == "image" and att.get("base64"):
+                parts.append(
+                    {"type": "image_url", "image_url": {"url": att["base64"]}}
+                )
+        user_content = parts
+    else:
+        user_content = query
+
     messages = [
         {"role": "system", "content": system_message},
-        {"role": "user", "content": query}
+        {"role": "user", "content": user_content}
     ]
 
     # Detect built-in search models
@@ -674,6 +696,7 @@ async def query_llm(request: QueryRequest):
         intent_label = intent_info.get("intent", "general")
         use_product_search = intent_label == "product_search"
         location_data = request.location.model_dump(exclude_none=True) if request.location else None
+        attachments = request.attachments or []
         if location_data is None and sessions_collection is not None:
             session_env = sessions_collection.find_one(
                 {"session_id": request.session_id},
@@ -712,6 +735,7 @@ async def query_llm(request: QueryRequest):
                 "forced_intent_result": intent_info,
                 "location": location_data,
                 "use_memory": use_memory,
+                "attachments": attachments,
             }
 
             # Run through multi-agent system
@@ -734,8 +758,8 @@ async def query_llm(request: QueryRequest):
             memory_context = agent_output.get("memory_context")
 
             # Store embeddings for RAG (async, don't wait)
-            if memory_agent:
-                # Store user query embedding
+            if memory_agent and not attachments:
+                # Store user/assistant text embeddings only when no binary attachments interfere
                 try:
                     await memory_agent.store_message_embedding(
                         session_id=request.session_id,
@@ -744,7 +768,6 @@ async def query_llm(request: QueryRequest):
                         content=request.query,
                         message_index=history_count if history_count else 0
                     )
-                    # Store assistant response embedding
                     await memory_agent.store_message_embedding(
                         session_id=request.session_id,
                         user_id=request.user_id,
@@ -784,7 +807,12 @@ async def query_llm(request: QueryRequest):
                 llm_input = f"User location: {location_text}\n\n{llm_input}"
 
             if request.model_provider == "openai":
-                response_text, citations, raw, tokens = call_openai(model, llm_input, system_prompt=system_prompt)
+                response_text, citations, raw, tokens = call_openai(
+                    model,
+                    llm_input,
+                    system_prompt=system_prompt,
+                    attachments=attachments,
+                )
             elif request.model_provider == "anthropic":
                 response_text, citations, raw, tokens = call_anthropic(model, llm_input, system_prompt=system_prompt)
             elif request.model_provider == "openrouter":
@@ -841,7 +869,7 @@ async def query_llm(request: QueryRequest):
         prompt_event = {
             "t": start_time_ms,
             "type": "prompt",
-            "data": {"text": request.query}
+            "data": {"text": request.query, "attachments": attachments}
         }
 
         # Log the model response event
@@ -1101,6 +1129,72 @@ async def end_session(request: SessionEndRequest):
     logger.info(f"🏁 Session ended: {request.session_id}")
 
     return {"status": "success"}
+
+
+# ==== MEMORIES CRUD (simple, user-scoped) ====
+class MemoryPayload(AppBaseModel):
+    user_id: str
+    key: str
+    value: str
+
+
+@app.get("/memories")
+async def list_memories(user_id: str):
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+    cursor = db.memories.find({"user_id": user_id}).sort("updated_at", -1)
+    memories = await asyncio.to_thread(list, cursor)
+    for m in memories:
+        m["_id"] = str(m.get("_id", ""))
+    return {"memories": memories}
+
+
+@app.post("/memories")
+async def create_memory(payload: MemoryPayload):
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+    doc = {
+        "user_id": payload.user_id,
+        "key": payload.key.strip(),
+        "value": payload.value.strip(),
+        "tokenCount": len(payload.value.split()),
+        "updated_at": datetime.utcnow(),
+    }
+    await asyncio.to_thread(
+        db.memories.update_one,
+        {"user_id": payload.user_id, "key": payload.key},
+        {"$set": doc},
+        upsert=True,
+    )
+    return {"status": "ok"}
+
+
+@app.patch("/memories/{key}")
+async def update_memory(key: str, payload: MemoryPayload):
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+    result = await asyncio.to_thread(
+        db.memories.update_one,
+        {"user_id": payload.user_id, "key": key},
+        {
+            "$set": {
+                "value": payload.value.strip(),
+                "tokenCount": len(payload.value.split()),
+                "updated_at": datetime.utcnow(),
+            }
+        },
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    return {"status": "ok"}
+
+
+@app.delete("/memories/{key}")
+async def delete_memory(key: str, user_id: str):
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+    await asyncio.to_thread(db.memories.delete_one, {"user_id": user_id, "key": key})
+    return {"status": "ok"}
 
 
 @app.get("/session/{session_id}")

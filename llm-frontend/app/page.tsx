@@ -34,6 +34,7 @@ interface Message {
   timestamp: Date;
   citations?: Citation[];
   product_cards?: ProductCardData[];
+  attachments?: { type: string; base64?: string; name?: string }[];
 }
 
 interface ChatSession {
@@ -45,6 +46,7 @@ interface ChatSession {
 }
 
 const DEFAULT_EXPERIMENT_ID = "production_v1";
+const EXPERIMENT_ID_KEY = "experiment_id_global";
 
 interface LocationData {
   latitude: number;
@@ -139,8 +141,7 @@ export default function Home() {
   }, [sessionId]);
 
   useEffect(() => {
-    if (!sessionId) return;
-    const stored = sessionStorage.getItem(`experiment_id_${sessionId}`);
+    const stored = localStorage.getItem(EXPERIMENT_ID_KEY);
     if (stored) {
       setExperimentId(stored);
       setExperimentDraft(stored);
@@ -150,7 +151,7 @@ export default function Home() {
       setExperimentDraft("");
       setShowExperimentModal(true);
     }
-  }, [sessionId]);
+  }, []);
 
   // NEW: Initialize session-based tracking (using the same sessionId as chat)
   useSession({
@@ -186,7 +187,7 @@ export default function Home() {
   }, [messages, sessionId]);
 
   const persistExperiment = (value: string) => {
-    sessionStorage.setItem(`experiment_id_${sessionId}`, value);
+    localStorage.setItem(EXPERIMENT_ID_KEY, value);
     setExperimentId(value);
     setShowExperimentModal(false);
   };
@@ -278,9 +279,6 @@ export default function Home() {
     sessionStorage.setItem("session_id", newSessionId);
     setMessages([]);
     setQuery("");
-    setExperimentId("");
-    setExperimentDraft("");
-    setShowExperimentModal(true);
     setMemoryContext(null);
   };
 
@@ -297,8 +295,8 @@ export default function Home() {
     loadSession(sId);
   };
 
-  const addMessage = (role: "user" | "assistant", content: string, citations?: Citation[], product_cards?: ProductCardData[]) => {
-    setMessages((prev) => [...prev, { role, content, citations, product_cards, timestamp: new Date() }]);
+  const addMessage = (role: "user" | "assistant", content: string, citations?: Citation[], product_cards?: ProductCardData[], attachments?: { type: string; base64?: string; name?: string }[]) => {
+    setMessages((prev) => [...prev, { role, content, citations, product_cards, attachments, timestamp: new Date() }]);
   };
 
   const handleAcceptTerms = () => {

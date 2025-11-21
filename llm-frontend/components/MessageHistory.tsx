@@ -29,6 +29,7 @@ interface Message {
   timestamp: Date;
   citations?: Citation[];
   product_cards?: ProductCardData[];
+  attachments?: { type: string; base64?: string; name?: string }[];
 }
 
 interface MessageHistoryProps {
@@ -167,6 +168,21 @@ export default function MessageHistory({
                     ? renderMarkdown(message.content, queryContext)
                     : message.content}
                 </div>
+                {/* Attachments */}
+                {message.attachments && message.attachments.length > 0 && (
+                  <div className="mt-3 grid grid-cols-3 gap-2">
+                    {message.attachments
+                      .filter((a) => a.type === "image" && a.base64)
+                      .map((a, idx) => (
+                        <img
+                          key={idx}
+                          src={a.base64}
+                          alt={a.name || "attachment"}
+                          className="w-full h-24 object-cover rounded-md border border-gray-200"
+                        />
+                      ))}
+                  </div>
+                )}
 
                 {/* ✅ TOGGLEABLE CITATIONS */}
                 {message.role === "assistant" &&

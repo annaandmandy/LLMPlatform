@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import MemoryPanel from "./MemoryPanel";
 
 interface ChatSession {
   id: string;
@@ -34,6 +35,7 @@ export default function Sidebar({
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [showMemories, setShowMemories] = useState(false);
 
   // Load chat sessions from localStorage
   const loadSessions = () => {
@@ -165,6 +167,27 @@ export default function Sidebar({
             </svg>
             Token Analytics
           </a>
+          <div className="pt-1">
+            <button
+              onClick={() => setShowMemories((prev) => !prev)}
+              className="w-full flex items-center justify-between px-3 py-2 bg-gray-600 hover:bg-gray-500 rounded-lg transition-colors text-sm"
+            >
+              <span className="font-medium text-gray-100">Memories</span>
+              <svg
+                className={`w-4 h-4 transition-transform ${showMemories ? "rotate-90" : ""}`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+            {showMemories && (
+              <div className="mt-2">
+                <MemoryPanel userId={userId} />
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Chat Sessions List */}

@@ -74,6 +74,7 @@ class CoordinatorAgent(BaseAgent):
         user_id = request.get("user_id")
         history = request.get("history", [])
         model = request.get("model", "gpt-4o-mini-search-preview")
+        attachments = request.get("attachments", [])
 
         logger.info(f"Processing query: {query[:100]}...")
 
@@ -122,7 +123,8 @@ class CoordinatorAgent(BaseAgent):
                 **request,
                 "intent": intent,
                 "product_cards": None,
-                "memory_context": memory_context
+                "memory_context": memory_context,
+                "attachments": attachments,
             }
             writer_result = await self.writer_agent.run(writer_request)
             writer_output = writer_result["output"]
@@ -147,7 +149,8 @@ class CoordinatorAgent(BaseAgent):
                 **request,
                 "intent": intent,
                 "memory_context": memory_context,
-                "product_cards": None
+                "product_cards": None,
+                "attachments": attachments,
             }
             writer_result = await self.writer_agent.run(writer_request)
             writer_output = writer_result["output"]

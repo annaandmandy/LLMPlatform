@@ -26,12 +26,19 @@ interface Message {
   content: string;
   citations?: Citation[];
   product_cards?: ProductCardData[];
+  attachments?: AttachedMedia[];
 }
 
 interface QueryBoxProps {
   query: string;
   setQuery: (query: string) => void;
-  addMessage: (role: "user" | "assistant", content: string, citations?: Citation[], product_cards?: ProductCardData[]) => void;
+  addMessage: (
+    role: "user" | "assistant",
+    content: string,
+    citations?: Citation[],
+    product_cards?: ProductCardData[],
+    attachments?: { type: string; base64?: string; name?: string }[]
+  ) => void;
   setMemoryContext?: (context: any) => void;
   userId: string;
   sessionId: string;
@@ -45,6 +52,15 @@ interface QueryBoxProps {
     accuracy?: number;
   } | null;
   messages?: Message[];
+}
+
+interface AttachedMedia {
+  name: string;
+  type: "image";
+  previewUrl: string;
+  dataUrl: string;
+  mime: string;
+  size: number;
 }
 
 // ✅ Expanded models with provider info (and web-search enabled)
@@ -75,6 +91,38 @@ export default function QueryBox({
 }: QueryBoxProps) {
   const [error, setError] = useState("");
   const [showModelSelector, setShowModelSelector] = useState(false);
+  const [attachments, setAttachments] = useState<AttachedMedia[]>([]);
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    const accepted = files.filter((f) => f.type.startsWith("image/"));
+    const converts = await Promise.all(
+      accepted.map(
+        (file) =>
+          new Promise<AttachedMedia>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              resolve({
+                name: file.name,
+                type: "image",
+                previewUrl: reader.result as string,
+                dataUrl: reader.result as string,
+                mime: file.type,
+                size: file.size,
+              });
+            };
+            reader.onerror = () => reject(reader.error || new Error("Failed to read file"));
+            reader.readAsDataURL(file);
+          }),
+      ),
+    );
+    setAttachments((prev) => [...prev, ...converts]);
+    e.target.value = "";
+  };
+
+  const removeAttachment = (name: string) => {
+    setAttachments((prev) => prev.filter((a) => a.name !== name));
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -91,12 +139,19 @@ export default function QueryBox({
 
     const historyPayload =
       messages.length > 0 ? messages.slice(-6).map(({ role, content }) => ({ role, content })) : [];
+    const attachmentPayload = attachments.map((a) => ({
+      type: a.type,
+      name: a.name,
+      mime: a.mime,
+      base64: a.dataUrl,
+      size: a.size,
+    }));
 
     setIsLoading(true);
     setError("");
 
     const userQuery = query;
-    addMessage("user", userQuery);
+    addMessage("user", userQuery, undefined, undefined, attachments.map((a) => ({ type: a.type, base64: a.dataUrl, name: a.name })));
     setQuery("");
 
     // set up clarity tag
@@ -127,16 +182,19 @@ export default function QueryBox({
           use_memory: true,
           history: historyPayload,
           location,
+          attachments: attachmentPayload,
         }),
       });
 
       if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
 
       const data = await res.json();
-      addMessage("assistant", data.response, data.citations, data.product_cards);
+      addMessage("assistant", data.response, data.citations, data.product_cards, data.attachments);
       if (setMemoryContext) {
         setMemoryContext(data.memory_context || null);
       }
+      // Clear attachments after send
+      setAttachments([]);
 
       // ✅ log browsing event
       await fetch(`${backendUrl}/log_event`, {
@@ -216,10 +274,38 @@ export default function QueryBox({
           </div>
         </div>
 
-        {/* Feature toggles removed; intent classifier decides routes */}
+        {/* Attachments */}
+        {attachments.length > 0 && (
+          <div className="flex flex-wrap gap-3">
+            {attachments.map((a) => (
+              <div key={a.name} className="relative w-20 h-20 rounded-lg overflow-hidden border border-gray-200">
+                <img src={a.previewUrl} alt={a.name} className="w-full h-full object-cover" />
+                <button
+                  type="button"
+                  onClick={() => removeAttachment(a.name)}
+                  className="absolute -top-2 -right-2 bg-white text-gray-700 rounded-full shadow p-1"
+                  aria-label="Remove attachment"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Input Area */}
         <div className="flex gap-2">
+          <label className="flex items-center justify-center w-12 h-12 bg-white border border-gray-300 rounded-lg hover:bg-gray-100 cursor-pointer transition-colors">
+            <input
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleFileChange}
+            />
+            <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+          </label>
           <textarea
             id="query"
             value={query}
