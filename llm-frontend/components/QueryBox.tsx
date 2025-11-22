@@ -249,9 +249,10 @@ export default function QueryBox({
     const userQuery = query;
     // Set thinking text with product search hint if detected
     const isProductQuery = detectProductIntent(userQuery);
+    // For product queries, show the actual search query; otherwise show the question
     const thinkingStatus = isProductQuery
-      ? `Searching for products: "${userQuery.slice(0, 50)}${userQuery.length > 50 ? '...' : ''}"`
-      : userQuery;
+      ? `Searching for products: ${userQuery.slice(0, 80)}${userQuery.length > 80 ? '...' : ''}`
+      : userQuery.slice(0, 100) + (userQuery.length > 100 ? '...' : '');
     setThinkingText?.(thinkingStatus);
     addMessage("user", userQuery, undefined, undefined, attachments.map((a) => ({ type: a.type, base64: a.dataUrl, name: a.name })));
     setQuery("");

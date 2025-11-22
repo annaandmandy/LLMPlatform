@@ -42,7 +42,12 @@ interface MessageHistoryProps {
 }
 
 function normalizeMarkdown(text: string) {
-  return text.replace(/([^\n])\n-/g, "$1\n\n-");
+  // Ensure proper spacing before list items for markdown parsing
+  // Also handle cases where list items might be split incorrectly
+  return text
+    .replace(/([^\n])\n-/g, "$1\n\n-")  // Add blank line before dash lists
+    .replace(/([^\n])\n\*/g, "$1\n\n*")  // Add blank line before asterisk lists
+    .replace(/([^\n])\n(\d+\.)/g, "$1\n\n$2");  // Add blank line before numbered lists
 }
 
 export default function MessageHistory({
@@ -138,20 +143,25 @@ export default function MessageHistory({
           </h3>
         ),
         ul: ({ children }) => (
-          <ul className="list-disc ml-6 my-2 space-y-1.5 text-base text-slate-800">
+          <ul className="list-disc ml-6 my-2 space-y-0.5 text-base text-slate-800 [&>li>p]:inline [&>li>p]:m-0">
             {children}
           </ul>
         ),
         ol: ({ children }) => (
-          <ol className="list-decimal ml-6 my-2 space-y-1.5 text-base text-slate-800">
+          <ol className="list-decimal ml-6 my-2 space-y-0.5 text-base text-slate-800 [&>li>p]:inline [&>li>p]:m-0">
             {children}
           </ol>
         ),
-        li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+        li: ({ children }) => (
+          <li className="leading-relaxed">{children}</li>
+        ),
         p: ({ children }) => (
-          <p className="mb-3 leading-relaxed text-base text-slate-800 break-words">
+          <p className="mb-3 leading-relaxed text-base text-slate-800">
             {children}
           </p>
+        ),
+        strong: ({ children }) => (
+          <strong className="font-semibold">{children}</strong>
         ),
         code: ({ children }) => (
           <code className="px-1.5 py-0.5 bg-slate-100 text-slate-800 rounded text-sm font-mono">
@@ -222,7 +232,7 @@ export default function MessageHistory({
                     : "bg-transparent text-gray-800"
                 }
               >
-                <div className="prose prose-sm max-w-none">
+                <div className="max-w-none">
                   {message.role === "assistant"
                     ? renderMarkdown(normalizeMarkdown(message.content), queryContext)
                     : message.content}
@@ -310,46 +320,39 @@ export default function MessageHistory({
       {isLoading && (
         <div className="flex justify-start">
           <div className="max-w-[85%] w-full">
-            <div className="text-gray-600 text-sm leading-relaxed">
-              {thinkingText ? (
-                <div className="space-y-1">
-                  {thinkingText.startsWith("Searching for products:") ? (
-                    <>
-                      <div className="flex items-center gap-2 text-blue-600">
-                        <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
-                        </svg>
-                        <span className="font-medium">Searching Google Shopping...</span>
-                      </div>
-                      <div className="text-gray-500 text-xs pl-6">
-                        {thinkingText.replace("Searching for products: ", "")}
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="flex items-center gap-2">
-                        <span className="text-gray-500">Thinking about:</span>
-                        <span className="text-gray-700 font-medium truncate max-w-md">{thinkingText}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-gray-400">
-                        <span>Analyzing</span>
-                        <span className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-pulse" />
-                        <span className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-pulse" style={typingDotStyle(0.15)} />
-                        <span className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-pulse" style={typingDotStyle(0.3)} />
-                      </div>
-                    </>
-                  )}
-                </div>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <span className="text-gray-500">Processing</span>
-                  <span className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-pulse" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-pulse" style={typingDotStyle(0.15)} />
-                  <span className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-pulse" style={typingDotStyle(0.3)} />
-                </div>
-              )}
-            </div>
+            {thinkingText ? (
+              <div className="flex items-center gap-2 text-slate-600 text-sm whitespace-nowrap overflow-hidden">
+                {thinkingText.startsWith("Searching for products:") ? (
+                  <>
+                    <svg className="w-3.5 h-3.5 text-blue-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                    <span className="text-slate-500 shrink-0">Searching for</span>
+                    <span className="font-medium text-slate-700 overflow-hidden text-ellipsis">
+                      {thinkingText.replace("Searching for products: ", "")}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-3.5 h-3.5 text-slate-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                    </svg>
+                    <span className="text-slate-700 overflow-hidden text-ellipsis">{thinkingText}</span>
+                  </>
+                )}
+                <span className="shrink-0 flex items-center gap-1 ml-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style={typingDotStyle(0.15)} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style={typingDotStyle(0.3)} />
+                </span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" />
+                <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style={typingDotStyle(0.15)} />
+                <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style={typingDotStyle(0.3)} />
+              </div>
+            )}
           </div>
         </div>
       )}
