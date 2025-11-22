@@ -26,7 +26,7 @@ interface Message {
   content: string;
   citations?: Citation[];
   product_cards?: ProductCardData[];
-  attachments?: AttachedMedia[];
+  attachments?: { type: string; base64?: string; name?: string }[];
 }
 
 interface QueryBoxProps {
@@ -52,6 +52,7 @@ interface QueryBoxProps {
     accuracy?: number;
   } | null;
   messages?: Message[];
+  setThinkingText?: (text: string) => void;
 }
 
 interface AttachedMedia {
@@ -108,6 +109,13 @@ async function resizeImageIfNeeded(
   });
 }
 
+// Client-side product intent detection for UI hints (not authoritative - backend decides)
+const PRODUCT_KEYWORDS = /\b(buy|purchase|recommend|best|top|cheap|affordable|review|compare|product|price|shop|shopping|deal|sale|gift|where to get|looking for|need a|want a|headphones|laptop|phone|camera|shoes|watch|tv|tablet|speaker|earbuds|keyboard|mouse|monitor|chair|desk|mattress|vacuum|blender|coffee|toaster)\b/i;
+
+function detectProductIntent(query: string): boolean {
+  return PRODUCT_KEYWORDS.test(query);
+}
+
 // ✅ Expanded models with provider info (and web-search enabled)
 const AVAILABLE_MODELS = [
   { id: "gpt-4o-mini-search-preview", name: "GPT-4o mini", provider: "openai" },
@@ -133,6 +141,7 @@ export default function QueryBox({
   setSelectedModel,
   location,
   messages = [],
+  setThinkingText,
 }: QueryBoxProps) {
   const [error, setError] = useState("");
   const [showModelSelector, setShowModelSelector] = useState(false);
@@ -238,6 +247,12 @@ export default function QueryBox({
     logUIInteraction("send message");
 
     const userQuery = query;
+    // Set thinking text with product search hint if detected
+    const isProductQuery = detectProductIntent(userQuery);
+    const thinkingStatus = isProductQuery
+      ? `Searching for products: "${userQuery.slice(0, 50)}${userQuery.length > 50 ? '...' : ''}"`
+      : userQuery;
+    setThinkingText?.(thinkingStatus);
     addMessage("user", userQuery, undefined, undefined, attachments.map((a) => ({ type: a.type, base64: a.dataUrl, name: a.name })));
     setQuery("");
 
@@ -301,13 +316,14 @@ export default function QueryBox({
     } finally {
       setIsLoading(false);
       textareaRef.current?.focus();
+      setThinkingText?.("");
     }
   };
 
   const currentModel = AVAILABLE_MODELS.find((m) => m.id === selectedModel) || AVAILABLE_MODELS[0];
 
   return (
-    <form onSubmit={handleSubmit} className="w-full">
+    <form onSubmit={handleSubmit} className="w-full relative">
       {/* Image Attachments Preview */}
     {attachments.length > 0 && (
       <div className="flex gap-3 mb-3 flex-wrap">
@@ -342,101 +358,104 @@ export default function QueryBox({
       </div>
     )}
 
-      <div className="flex items-center gap-3 bg-white rounded-2xl shadow-sm border border-gray-200 px-4 py-3">
+      {/* Model selector container - wraps both button trigger and dropdown for click-outside detection */}
+      <div ref={modelSelectorRef} className="relative">
+        {/* Model Selector Dropdown - positioned above the input */}
+        {showModelSelector && (
+          <div className="absolute bottom-full left-0 mb-2 bg-white rounded-xl shadow-lg border border-gray-200 p-2 w-64 z-50">
+            {AVAILABLE_MODELS.map((model) => (
+              <button
+                key={model.id}
+                type="button"
+                onClick={() => {
+                  setSelectedModel(model.id);
+                  setShowModelSelector(false);
+                }}
+                className={`w-full text-left px-3 py-2 rounded-lg transition ${
+                  selectedModel === model.id ? 'bg-blue-100 text-blue-800' : 'hover:bg-gray-100'
+                }`}
+              >
+                <div className="font-medium">{model.name}</div>
+                <div className="text-xs text-gray-500">{model.provider}</div>
+              </button>
+            ))}
+          </div>
+        )}
 
-        {/* Left Icons */}
-        <div className="flex items-center gap-3 text-gray-500">
-          {/* Model Selector Icon */}
-          <button
-            type="button"
-            onClick={() => {
-              setShowModelSelector(!showModelSelector);
-              logUIInteraction("model switch");
-            }}
-            className="hover:text-gray-700 transition"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M4 7h12M4 12h16M4 17h10" />
-            </svg>
-          </button>
+        <div className="flex items-center gap-3 bg-white rounded-2xl shadow-sm border border-gray-200 px-4 py-3">
 
-          {/* Attachment */}
-          <label
-            className="cursor-pointer hover:text-gray-700 transition"
-            onClick={() => logUIInteraction("image upload")}
-          >
-            <input type="file" accept="image/*" className="hidden" onChange={handleFileChange}/>
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
-                d="M4 5h16v14H4z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
-                d="M4 15l4-4 3 3 5-5 4 4" />
-              <circle cx="9" cy="9" r="1.5" />
-            </svg>
-          </label>
-        </div>
-
-        {/* Input */}
-        <textarea
-          ref={textareaRef}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={`Message ${currentModel?.name}`}
-          rows={1}
-          className="flex-1 resize-none bg-transparent focus:outline-none text-gray-800 placeholder-gray-400"
-          disabled={isLoading}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              handleSubmit(e);
-            }
-          }}
-        />
-
-        {/* Right Icons */}
-        <div className="flex items-center gap-3">
-
-          {/* Send */}
-          <button
-            type="submit"
-            disabled={isLoading || !query.trim()}
-            className="w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition disabled:opacity-40 disabled:hover:bg-gray-100"
-          >
-            {isLoading ? (
-              <svg className="animate-spin w-5 h-5 text-gray-500" viewBox="0 0 24 24">
-                <circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                <path className="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
-              </svg>
-            ) : (
-              <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2z"/>
-              </svg>
-            )}
-          </button>
-        </div>
-      </div>
-
-      {/* Model Selector Dropdown */}
-      {showModelSelector && (
-        <div className="mt-2 bg-white rounded-xl shadow-lg border border-gray-200 p-2 w-64">
-          {AVAILABLE_MODELS.map((model) => (
+          {/* Left Icons */}
+          <div className="flex items-center gap-3 text-gray-500">
+            {/* Model Selector Icon */}
             <button
-              key={model.id}
               type="button"
               onClick={() => {
-                setSelectedModel(model.id);
-                setShowModelSelector(false);
+                setShowModelSelector(!showModelSelector);
+                logUIInteraction("model switch");
               }}
-              className={`w-full text-left px-3 py-2 rounded-lg transition ${
-                selectedModel === model.id ? 'bg-blue-100 text-blue-800' : 'hover:bg-gray-100'
-              }`}
+              className="hover:text-gray-700 transition"
             >
-              <div className="font-medium">{model.name}</div>
-              <div className="text-xs text-gray-500">{model.provider}</div>
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M4 7h12M4 12h16M4 17h10" />
+              </svg>
             </button>
-          ))}
+
+            {/* Attachment */}
+            <label
+              className="cursor-pointer hover:text-gray-700 transition"
+              onClick={() => logUIInteraction("image upload")}
+            >
+              <input type="file" accept="image/*" className="hidden" onChange={handleFileChange}/>
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+                  d="M4 5h16v14H4z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+                  d="M4 15l4-4 3 3 5-5 4 4" />
+                <circle cx="9" cy="9" r="1.5" />
+              </svg>
+            </label>
+          </div>
+
+          {/* Input */}
+          <textarea
+            ref={textareaRef}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={`Message ${currentModel?.name}`}
+            rows={1}
+            className="flex-1 resize-none bg-transparent focus:outline-none text-gray-800 placeholder-gray-400"
+            disabled={isLoading}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSubmit(e);
+              }
+            }}
+          />
+
+          {/* Right Icons */}
+          <div className="flex items-center gap-3">
+
+            {/* Send */}
+            <button
+              type="submit"
+              disabled={isLoading || !query.trim()}
+              className="w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition disabled:opacity-40 disabled:hover:bg-gray-100"
+            >
+              {isLoading ? (
+                <svg className="animate-spin w-5 h-5 text-gray-500" viewBox="0 0 24 24">
+                  <circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                  <path className="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                </svg>
+              ) : (
+                <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2z"/>
+                </svg>
+              )}
+            </button>
+          </div>
         </div>
-      )}
+      </div>
 
       {error && <div className="text-red-600 text-sm mt-2">{error}</div>}
     </form>

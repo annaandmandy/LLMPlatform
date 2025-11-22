@@ -70,6 +70,7 @@ export default function Home() {
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [showClearUserModal, setShowClearUserModal] = useState(false);
   const [, setMemoryContext] = useState<Record<string, unknown> | null>(null);
+  const [thinkingText, setThinkingText] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -422,6 +423,7 @@ export default function Home() {
                   setSelectedModel={setSelectedModel}
                   messages={messages}
                   location={location}
+                  setThinkingText={setThinkingText}
                 />
               </div>
             </div>
@@ -448,13 +450,14 @@ export default function Home() {
                   sessionId={sessionId}
                   messagesEndRef={messagesEndRef}
                   isLoading={isLoading}
+                  thinkingText={thinkingText}
                 />
               </div>
             </div>
 
             {/* Query box - fixed at bottom */}
             <div className="flex-shrink-0">
-              <div className="max-w-4xl w-full mx-auto p-4">
+              <div className="max-w-4xl w-full mx-auto p-4 py-6">
                 <QueryBox
                   query={query}
                   setQuery={setQuery}
@@ -468,6 +471,7 @@ export default function Home() {
                   setSelectedModel={setSelectedModel}
                   messages={messages}
                   location={location}
+                  setThinkingText={setThinkingText}
                 />
               </div>
             </div>

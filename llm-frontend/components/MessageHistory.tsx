@@ -38,6 +38,11 @@ interface MessageHistoryProps {
   sessionId: string;
   messagesEndRef: React.RefObject<HTMLDivElement>;
   isLoading?: boolean;
+  thinkingText?: string;
+}
+
+function normalizeMarkdown(text: string) {
+  return text.replace(/([^\n])\n-/g, "$1\n\n-");
 }
 
 export default function MessageHistory({
@@ -46,24 +51,14 @@ export default function MessageHistory({
   sessionId,
   messagesEndRef,
   isLoading = false,
+  thinkingText = "",
 }: MessageHistoryProps) {
   const [clickedLinks, setClickedLinks] = useState<Set<string>>(new Set());
   const [expandedSources, setExpandedSources] = useState<Set<number>>(new Set());
-  const [thinkingActive, setThinkingActive] = useState(false);
-  const [showReasoning, setShowReasoning] = useState(false);
   const typingDotStyle = (delay: number): CSSProperties => ({ animationDelay: `${delay}s` });
 
-  // Simulate Claude-like reasoning overlay
+  // Scroll to bottom when loading state changes
   useEffect(() => {
-    if (isLoading) {
-      setThinkingActive(true);
-    } else if (thinkingActive) {
-      setThinkingActive(false);
-      setShowReasoning(true);
-      // auto-hide after brief delay
-      const timer = setTimeout(() => setShowReasoning(false), 4000);
-      return () => clearTimeout(timer);
-    }
     if (messagesEndRef?.current) {
       messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
@@ -104,7 +99,7 @@ export default function MessageHistory({
       console.error("Error logging click event:", err);
     }
   };
-
+  
   // Use react-markdown to render assistant replies
   const renderMarkdown = (text: string, query: string) => (
     <ReactMarkdown
@@ -120,7 +115,7 @@ export default function MessageHistory({
               rel="noopener noreferrer"
               onClick={() => handleLinkClick(link, query)}
               className={`${
-                isClicked ? "text-purple-600" : "text-blue-600"
+                isClicked ? "text-indigo-600" : "text-blue-700"
               } hover:text-blue-800 underline`}
             >
               {children}
@@ -128,18 +123,53 @@ export default function MessageHistory({
           );
         },
         h1: ({ children }) => (
-          <h1 className="text-xl font-bold mt-2 mb-1">{children}</h1>
+          <h1 className="text-2xl font-semibold mt-4 mb-2 text-slate-900">
+            {children}
+          </h1>
         ),
         h2: ({ children }) => (
-          <h2 className="text-lg font-semibold mt-2 mb-1">{children}</h2>
+          <h2 className="text-xl font-semibold mt-4 mb-2 text-slate-900">
+            {children}
+          </h2>
         ),
         h3: ({ children }) => (
-          <h3 className="text-md font-medium mt-2 mb-1">{children}</h3>
+          <h3 className="text-lg font-semibold mt-3 mb-1.5 text-slate-900">
+            {children}
+          </h3>
         ),
-        ul: ({ children }) => <ul className="list-disc ml-5 space-y-1">{children}</ul>,
-        ol: ({ children }) => <ol className="list-decimal ml-5 space-y-1">{children}</ol>,
-        li: ({ children }) => <li className="leading-snug">{children}</li>,
-        p: ({ children }) => <p className="mb-2 leading-relaxed">{children}</p>,
+        ul: ({ children }) => (
+          <ul className="list-disc ml-6 my-2 space-y-1.5 text-base text-slate-800">
+            {children}
+          </ul>
+        ),
+        ol: ({ children }) => (
+          <ol className="list-decimal ml-6 my-2 space-y-1.5 text-base text-slate-800">
+            {children}
+          </ol>
+        ),
+        li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+        p: ({ children }) => (
+          <p className="mb-3 leading-relaxed text-base text-slate-800 break-words">
+            {children}
+          </p>
+        ),
+        code: ({ children }) => (
+          <code className="px-1.5 py-0.5 bg-slate-100 text-slate-800 rounded text-sm font-mono">
+            {children}
+          </code>
+        ),
+        pre: ({ children }) => (
+          <pre className="bg-slate-900 text-slate-100 p-4 rounded-xl overflow-x-auto text-sm font-mono my-3">
+            {children}
+          </pre>
+        ),
+        img: ({ src, alt }) => (
+          <img
+            src={src || ""}
+            alt={alt || ""}
+            className="max-w-full rounded-lg border border-slate-200 my-3"
+          />
+        ),
       }}
     >
       {text}
@@ -161,28 +191,6 @@ export default function MessageHistory({
 
   return (
     <div className="p-6 space-y-4">
-      {(thinkingActive || showReasoning) && (
-        <div className="bg-gray-100 border border-gray-200 rounded-lg p-3 text-sm text-gray-700">
-          <div className="flex items-center justify-between">
-            <span className="font-semibold text-gray-800">
-              {thinkingActive ? "Thinking..." : "Reasoning"}
-            </span>
-            {!thinkingActive && (
-              <button
-                onClick={() => setShowReasoning(false)}
-                className="text-xs text-gray-500 hover:text-gray-700"
-              >
-                Dismiss
-              </button>
-            )}
-          </div>
-          <p className="mt-1 text-gray-700">
-            {thinkingActive
-              ? "Model is analyzing and planning the response."
-              : "Thought process finished. Showing summarized response below."}
-          </p>
-        </div>
-      )}
 
       {messages.map((message, index) => {
         const queryContext =
@@ -216,7 +224,7 @@ export default function MessageHistory({
               >
                 <div className="prose prose-sm max-w-none">
                   {message.role === "assistant"
-                    ? renderMarkdown(message.content, queryContext)
+                    ? renderMarkdown(normalizeMarkdown(message.content), queryContext)
                     : message.content}
                 </div>
                 {/* Attachments */}
@@ -301,24 +309,46 @@ export default function MessageHistory({
 
       {isLoading && (
         <div className="flex justify-start">
-          <div className="max-w-[75%]">
-            <div className="
-              rounded-xl
-              px-4 py-3
-              bg-white/90
-              backdrop-blur-sm
-              border border-gray-300/60
-              shadow-sm
-              text-gray-700
-            ">
-              <div className="flex items-center gap-2">
-                <span className="font-medium text-gray-800">Assistant is thinking</span>
-                <div className="flex gap-1" aria-label="Loading">
-                  <span className="w-2.5 h-2.5 rounded-full bg-gray-400 animate-bounce" />
-                  <span className="w-2.5 h-2.5 rounded-full bg-gray-400 animate-bounce" style={typingDotStyle(0.15)} />
-                  <span className="w-2.5 h-2.5 rounded-full bg-gray-400 animate-bounce" style={typingDotStyle(0.3)} />
+          <div className="max-w-[85%] w-full">
+            <div className="text-gray-600 text-sm leading-relaxed">
+              {thinkingText ? (
+                <div className="space-y-1">
+                  {thinkingText.startsWith("Searching for products:") ? (
+                    <>
+                      <div className="flex items-center gap-2 text-blue-600">
+                        <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+                        </svg>
+                        <span className="font-medium">Searching Google Shopping...</span>
+                      </div>
+                      <div className="text-gray-500 text-xs pl-6">
+                        {thinkingText.replace("Searching for products: ", "")}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-500">Thinking about:</span>
+                        <span className="text-gray-700 font-medium truncate max-w-md">{thinkingText}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-gray-400">
+                        <span>Analyzing</span>
+                        <span className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-pulse" />
+                        <span className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-pulse" style={typingDotStyle(0.15)} />
+                        <span className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-pulse" style={typingDotStyle(0.3)} />
+                      </div>
+                    </>
+                  )}
                 </div>
-              </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-500">Processing</span>
+                  <span className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-pulse" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-pulse" style={typingDotStyle(0.15)} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-pulse" style={typingDotStyle(0.3)} />
+                </div>
+              )}
             </div>
           </div>
         </div>
