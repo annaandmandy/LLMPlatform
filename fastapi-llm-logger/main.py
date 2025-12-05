@@ -747,7 +747,7 @@ async def query_llm(request: QueryRequest):
         ] if request.history else []
         history_count = len(history_messages)
 
-        use_memory = bool(request.use_memory)
+        use_memory = True  # always enable memory
         # Intent detection (LLM/embedding backed, see utils/intent_classifier.py)
         intent_info = await detect_intent(request.query)
         intent_label = intent_info.get("intent", "general")
@@ -764,7 +764,7 @@ async def query_llm(request: QueryRequest):
         location_text = format_location_text(location_data)
 
         processed_query = request.query
-        history_for_agents = history_messages[-6:] if use_memory else []
+        history_for_agents = history_messages[-6:]
 
         # Try using multi-agent system first
         if location_data and sessions_collection is not None:
@@ -791,7 +791,7 @@ async def query_llm(request: QueryRequest):
                 "intent": intent_label,
                 "forced_intent_result": intent_info,
                 "location": location_data,
-                "use_memory": use_memory,
+                "use_memory": True,
                 "attachments": attachments,
             }
 
@@ -848,6 +848,20 @@ async def query_llm(request: QueryRequest):
                 "confidence": 1.0,
                 "agents_used": []
             }
+            memory_context = None
+            if memory_agent:
+                try:
+                    mem_result = await memory_agent.run(
+                        {
+                            "action": "context_bundle",
+                            "query": processed_query,
+                            "session_id": request.session_id,
+                            "user_id": request.user_id,
+                        }
+                    )
+                    memory_context = mem_result.get("output")
+                except Exception as e:
+                    logger.warning(f"MemoryAgent retrieval failed (fallback path): {e}")
 
             llm_input = processed_query
             if history_for_agents:
@@ -860,6 +874,32 @@ async def query_llm(request: QueryRequest):
                     f"{history_text}\n\n"
                     f"Current question: {processed_query}"
                 )
+            if memory_context:
+                memory_parts = []
+                summaries = (memory_context.get("summaries") or []) if isinstance(memory_context, dict) else []
+                retrieved = (memory_context.get("context") or []) if isinstance(memory_context, dict) else []
+                recents = (memory_context.get("recent_messages") or []) if isinstance(memory_context, dict) else []
+                memories = (memory_context.get("memories") or []) if isinstance(memory_context, dict) else []
+
+                if summaries:
+                    memory_parts.append("Summaries:")
+                    for s in summaries[:2]:
+                        memory_parts.append(f"- {s.get('summary', '')[:240]}")
+                if memories:
+                    memory_parts.append("Stored facts:")
+                    for mem in memories[:4]:
+                        memory_parts.append(f"- {mem.get('key')}: {mem.get('value')}")
+                if retrieved:
+                    memory_parts.append("Similar messages:")
+                    for ctx in retrieved[:4]:
+                        memory_parts.append(f"- (sim {ctx.get('similarity',0):.2f}) {ctx.get('content','')[:180]}")
+                if recents:
+                    memory_parts.append("Recent turns:")
+                    for msg in recents[-4:]:
+                        memory_parts.append(f"- {msg.get('role','user')}: {msg.get('content','')[:160]}")
+
+                if memory_parts:
+                    llm_input = f"{llm_input}\n\nMemory context:\n" + "\n".join(memory_parts)
             if location_text:
                 llm_input = f"User location: {location_text}\n\n{llm_input}"
 
@@ -904,7 +944,7 @@ async def query_llm(request: QueryRequest):
 
         if use_memory and history_for_agents:
             query_log["need_memory"] = True
-            query_log["memory_reason"] = "user_toggle"
+            query_log["memory_reason"] = "always_on"
             query_log["history_window_size"] = len(history_for_agents)
 
         # Add multi-agent specific fields if available
@@ -986,7 +1026,7 @@ async def query_llm(request: QueryRequest):
 
         if use_memory and history_for_agents:
             response_data["need_memory"] = True
-            response_data["memory_reason"] = "user_toggle"
+            response_data["memory_reason"] = "always_on"
         if location_data:
             response_data["user_location"] = location_data
 
