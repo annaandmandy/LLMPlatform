@@ -968,10 +968,15 @@ async def query_llm(request: QueryRequest):
 
         # NEW: Also log to sessions collection
         # Log the prompt event
+        # Log the prompt event
         prompt_event = {
             "t": start_time_ms,
             "type": "prompt",
-            "data": {"text": request.query, "attachments": attachments}
+            "data": {
+                "text": request.query,
+                "attachments": attachments,
+                "mode": request.mode  # Log the interaction mode (e.g., 'shopping' or 'chat')
+            }
         }
 
         # Log the model response event
@@ -981,7 +986,8 @@ async def query_llm(request: QueryRequest):
             "provider": request.model_provider,
             "latency_ms": latency_ms,
             "response_length": len(response_text),
-            "citations": citations
+            "citations": citations,
+            "mode": request.mode  # Log mode in response as well
         }
 
         # Add token usage if available
