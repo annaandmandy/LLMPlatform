@@ -14,6 +14,7 @@ from .memory_agent import MemoryAgent
 from .product_agent import ProductAgent
 from .writer_agent import WriterAgent
 from .vision_agent import VisionAgent
+from .shopping_agent import ShoppingAgent
 
 __all__ = [
     'BaseAgent',
@@ -22,4 +23,5 @@ __all__ = [
     'ProductAgent',
     'WriterAgent',
     'VisionAgent',
+    'ShoppingAgent',
 ]

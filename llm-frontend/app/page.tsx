@@ -35,6 +35,7 @@ interface Message {
   citations?: Citation[];
   product_cards?: ProductCardData[];
   attachments?: { type: string; base64?: string; name?: string }[];
+  options?: string[];
 }
 
 interface ChatSession {
@@ -72,6 +73,7 @@ export default function Home() {
   const [, setMemoryContext] = useState<Record<string, unknown> | null>(null);
   const [thinkingText, setThinkingText] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [isShoppingMode, setIsShoppingMode] = useState(false);
 
   useEffect(() => {
     // Check if user has already accepted terms
@@ -322,8 +324,8 @@ export default function Home() {
     loadSession(sId);
   };
 
-  const addMessage = (role: "user" | "assistant", content: string, citations?: Citation[], product_cards?: ProductCardData[], attachments?: { type: string; base64?: string; name?: string }[]) => {
-    setMessages((prev) => [...prev, { role, content, citations, product_cards, attachments, timestamp: new Date() }]);
+  const addMessage = (role: "user" | "assistant", content: string, citations?: Citation[], product_cards?: ProductCardData[], attachments?: { type: string; base64?: string; name?: string }[], options?: string[]) => {
+    setMessages((prev) => [...prev, { role, content, citations, product_cards, attachments, options, timestamp: new Date() }]);
   };
 
   const handleAcceptTerms = () => {
@@ -349,6 +351,56 @@ export default function Home() {
 
     // Reload the page to start fresh
     window.location.reload();
+  };
+
+  const handleOptionSelect = async (option: string) => {
+    if (!userId || !sessionId) return;
+
+    // UI Updates
+    addMessage("user", option);
+    setIsLoading(true);
+    setThinkingText("Processing option...");
+
+    try {
+      const backendUrl = (process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000").replace(/\/$/, "");
+
+      const historyPayload = messages.slice(-6).map(({ role, content }) => ({ role, content }));
+      // Append current message to history payload effectively
+      historyPayload.push({ role: "user", content: option });
+
+      const res = await fetch(`${backendUrl}/query`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: userId,
+          session_id: sessionId,
+          query: option,
+          model_name: selectedModel,
+          model_provider: "openai", // defaulting or logic to find provider
+          web_search: true,
+          use_memory: true,
+          history: historyPayload,
+          location,
+          mode: isShoppingMode ? "shopping" : "chat",
+        }),
+      });
+
+      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+
+      const data = await res.json();
+      addMessage("assistant", data.response, data.citations, data.product_cards, data.attachments, data.options);
+
+      if (setMemoryContext && data.memory_context) {
+        setMemoryContext(data.memory_context);
+      }
+
+    } catch (err) {
+      console.error("Error sending option:", err);
+      addMessage("assistant", "Sorry, I encountered an error processing your selection.");
+    } finally {
+      setIsLoading(false);
+      setThinkingText("");
+    }
   };
 
   return (
@@ -390,9 +442,8 @@ export default function Home() {
 
       {/* Main content area */}
       <main
-        className={`flex-1 flex flex-col bg-gradient-to-br from-slate-300 via-white to-slate-300 transition-all duration-300 overflow-hidden ${
-          sidebarOpen ? "lg:ml-64" : ""
-        }`}
+        className={`flex-1 flex flex-col bg-gradient-to-br from-slate-300 via-white to-slate-300 transition-all duration-300 overflow-hidden ${sidebarOpen ? "lg:ml-64" : ""
+          }`}
       >
         {messages.length === 0 ? (
           /* Centered layout for new chat */
@@ -424,6 +475,8 @@ export default function Home() {
                   messages={messages}
                   location={location}
                   setThinkingText={setThinkingText}
+                  isShoppingMode={isShoppingMode}
+                  onToggleShoppingMode={() => setIsShoppingMode(!isShoppingMode)}
                 />
               </div>
             </div>
@@ -451,6 +504,7 @@ export default function Home() {
                   messagesEndRef={messagesEndRef}
                   isLoading={isLoading}
                   thinkingText={thinkingText}
+                  onOptionSelect={handleOptionSelect}
                 />
               </div>
             </div>
@@ -472,6 +526,8 @@ export default function Home() {
                   messages={messages}
                   location={location}
                   setThinkingText={setThinkingText}
+                  isShoppingMode={isShoppingMode}
+                  onToggleShoppingMode={() => setIsShoppingMode(!isShoppingMode)}
                 />
               </div>
             </div>
@@ -530,9 +586,8 @@ function ExperimentModal({
             type="button"
             disabled={!value.trim()}
             onClick={onConfirm}
-            className={`w-1/2 py-2 rounded-md font-semibold text-white transition-colors ${
-              value.trim() ? "bg-blue-600 hover:bg-blue-700" : "bg-gray-400 cursor-not-allowed"
-            }`}
+            className={`w-1/2 py-2 rounded-md font-semibold text-white transition-colors ${value.trim() ? "bg-blue-600 hover:bg-blue-700" : "bg-gray-400 cursor-not-allowed"
+              }`}
           >
             Save ID
           </button>

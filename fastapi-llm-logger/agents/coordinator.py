@@ -35,8 +35,9 @@ class CoordinatorAgent(BaseAgent):
         self.product_agent = None
         self.writer_agent = None
         self.vision_agent = None
+        self.shopping_agent = None
 
-    def set_agents(self, memory_agent, product_agent, writer_agent, vision_agent=None):
+    def set_agents(self, memory_agent, product_agent, writer_agent, vision_agent=None, shopping_agent=None):
         """
         Set references to specialized agents.
 
@@ -50,6 +51,7 @@ class CoordinatorAgent(BaseAgent):
         self.product_agent = product_agent
         self.writer_agent = writer_agent
         self.vision_agent = vision_agent
+        self.shopping_agent = shopping_agent
         logger.info(f"{self.name} agents configured")
 
     async def execute(self, request: Dict[str, Any]) -> Dict[str, Any]:
@@ -135,7 +137,33 @@ class CoordinatorAgent(BaseAgent):
             except Exception as e:
                 logger.warning(f"VisionAgent failed: {e}")
 
-        # Step 2: Route based on intent
+        # Step 2: Route based on intent and mode
+        mode = request.get("mode", "chat")
+        
+        if mode == "shopping" and self.shopping_agent:
+            try:
+                shopping_result = await self.shopping_agent.run(request)
+                s_out = shopping_result["output"]
+                agents_used.append("ShoppingAgent")
+
+                if s_out["status"] == "question":
+                    # Return intermediate question directly
+                    return {
+                        "response": s_out["response"],
+                        "options": s_out["options"],
+                        "intent": "shopping_interview",
+                        "agents_used": agents_used,
+                        "memory_context": memory_context
+                    }
+                elif s_out["status"] == "complete":
+                    # Update query with synthesized search query and force product search
+                    query = s_out["search_query"]
+                    request["query"] = query 
+                    intent = "product_search"
+                    logger.info(f"Shopping interview complete. Synthesized query: {query}")
+            except Exception as e:
+                logger.error(f"ShoppingAgent failed, falling back to passed intent: {e}")
+
         if intent == "product_search":
             # Product search flow: leverage ProductAgent dual-output prompt for structured data
             agents_used.extend(["WriterAgent", "ProductAgent"])

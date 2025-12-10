@@ -129,6 +129,7 @@ class QueryRequest(AppBaseModel):
     history: Optional[List[MessageHistory]] = []  # NEW: Conversation history for multi-agent context
     location: Optional[LocationInfo] = None
     attachments: Optional[List[Dict[str, Any]]] = None
+    mode: Optional[str] = "chat"  # "chat" or "shopping"
 
 
 class LogEventRequest(AppBaseModel):
@@ -271,7 +272,7 @@ def _save_upload(upload: UploadFile) -> Dict[str, Any]:
 
 
 # ==== MULTI-AGENT SYSTEM INITIALIZATION ====
-from agents import CoordinatorAgent, MemoryAgent, ProductAgent, WriterAgent, VisionAgent
+from agents import CoordinatorAgent, MemoryAgent, ProductAgent, WriterAgent, VisionAgent, ShoppingAgent
 from agents.writer_agent import DEFAULT_SYSTEM_PROMPT
 from utils.intent_classifier import detect_intent
 
@@ -280,10 +281,11 @@ coordinator_agent = None
 memory_agent = None
 product_agent = None
 writer_agent = None
+shopping_agent = None
 
 def initialize_agents():
     """Initialize the multi-agent system"""
-    global coordinator_agent, memory_agent, product_agent, writer_agent
+    global coordinator_agent, memory_agent, product_agent, writer_agent, shopping_agent
 
     if db is None:
         logger.warning("⚠️ Database not connected, multi-agent system disabled")
@@ -297,6 +299,7 @@ def initialize_agents():
         product_agent = ProductAgent(db=db)
         writer_agent = WriterAgent(db=db)
         vision_agent = VisionAgent(db=db)
+        shopping_agent = ShoppingAgent(db=db)
         coordinator_agent = CoordinatorAgent(db=db)
 
         # Configure WriterAgent with LLM functions
@@ -311,7 +314,7 @@ def initialize_agents():
         writer_agent.set_llm_functions(llm_functions)
 
         # Link agents to coordinator
-        coordinator_agent.set_agents(memory_agent, product_agent, writer_agent, vision_agent)
+        coordinator_agent.set_agents(memory_agent, product_agent, writer_agent, vision_agent, shopping_agent)
 
 
         logger.info("✅ Multi-agent system initialized successfully")
@@ -409,6 +412,7 @@ def call_openai(model: str, query: str, system_prompt: str | None = None, attach
 
     else:
         # --- Responses API for standard models ---
+        messages = _build_messages(bool(attachments))
         response = client.responses.create(
             model=model,
             input=messages,
@@ -793,6 +797,7 @@ async def query_llm(request: QueryRequest):
                 "location": location_data,
                 "use_memory": True,
                 "attachments": attachments,
+                "mode": request.mode,
             }
 
             # Run through multi-agent system
@@ -1042,6 +1047,10 @@ async def query_llm(request: QueryRequest):
         if intent_info:
             response_data["intent"] = intent_info.get("intent")
             response_data["agents_used"] = intent_info.get("agents_used")
+
+        # NEW: Pass options if present (from ShoppingAgent)
+        if agent_output.get("options"):
+            response_data["options"] = agent_output.get("options")
 
         return response_data
 

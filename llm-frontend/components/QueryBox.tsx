@@ -37,7 +37,8 @@ interface QueryBoxProps {
     content: string,
     citations?: Citation[],
     product_cards?: ProductCardData[],
-    attachments?: { type: string; base64?: string; name?: string }[]
+    attachments?: { type: string; base64?: string; name?: string }[],
+    options?: string[]
   ) => void;
   setMemoryContext?: (context: any) => void;
   userId: string;
@@ -53,6 +54,8 @@ interface QueryBoxProps {
   } | null;
   messages?: Message[];
   setThinkingText?: (text: string) => void;
+  isShoppingMode?: boolean;
+  onToggleShoppingMode?: () => void;
 }
 
 interface AttachedMedia {
@@ -142,6 +145,8 @@ export default function QueryBox({
   location,
   messages = [],
   setThinkingText,
+  isShoppingMode,
+  onToggleShoppingMode,
 }: QueryBoxProps) {
   const [error, setError] = useState("");
   const [showModelSelector, setShowModelSelector] = useState(false);
@@ -286,13 +291,14 @@ export default function QueryBox({
           history: historyPayload,
           location,
           attachments: attachmentPayload,
+          mode: isShoppingMode ? "shopping" : "chat",
         }),
       });
 
       if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
 
       const data = await res.json();
-      addMessage("assistant", data.response, data.citations, data.product_cards, data.attachments);
+      addMessage("assistant", data.response, data.citations, data.product_cards, data.attachments, data.options);
       if (setMemoryContext) {
         setMemoryContext(data.memory_context || null);
       }
@@ -326,38 +332,38 @@ export default function QueryBox({
   return (
     <form onSubmit={handleSubmit} className="w-full relative">
       {/* Image Attachments Preview */}
-    {attachments.length > 0 && (
-      <div className="flex gap-3 mb-3 flex-wrap">
-        {attachments.map((a) => (
-          <div
-            key={a.name}
-            className="relative w-16 h-16 bg-gray-100 rounded-lg overflow-hidden border border-gray-300 shadow-sm"
-          >
-            <img
-              src={a.previewUrl}
-              alt={a.name}
-              className="w-full h-full object-cover"
-            />
-
-            {/* Remove Button */}
-            <button
-              type="button"
-              onClick={() => removeAttachment(a.name)}
-              className="absolute -top-1.5 -right-1.5 bg-white shadow-md text-gray-600 hover:text-red-500 rounded-full p-1"
+      {attachments.length > 0 && (
+        <div className="flex gap-3 mb-3 flex-wrap">
+          {attachments.map((a) => (
+            <div
+              key={a.name}
+              className="relative w-16 h-16 bg-gray-100 rounded-lg overflow-hidden border border-gray-300 shadow-sm"
             >
-              <svg
-                className="w-3 h-3"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
+              <img
+                src={a.previewUrl}
+                alt={a.name}
+                className="w-full h-full object-cover"
+              />
+
+              {/* Remove Button */}
+              <button
+                type="button"
+                onClick={() => removeAttachment(a.name)}
+                className="absolute -top-1.5 -right-1.5 bg-white shadow-md text-gray-600 hover:text-red-500 rounded-full p-1"
               >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-        ))}
-      </div>
-    )}
+                <svg
+                  className="w-3 h-3"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Model selector container - wraps both button trigger and dropdown for click-outside detection */}
       <div ref={modelSelectorRef} className="relative">
@@ -372,9 +378,8 @@ export default function QueryBox({
                   setSelectedModel(model.id);
                   setShowModelSelector(false);
                 }}
-                className={`w-full text-left px-3 py-2 rounded-lg transition ${
-                  selectedModel === model.id ? 'bg-blue-100 text-blue-800' : 'hover:bg-gray-100'
-                }`}
+                className={`w-full text-left px-3 py-2 rounded-lg transition ${selectedModel === model.id ? 'bg-blue-100 text-blue-800' : 'hover:bg-gray-100'
+                  }`}
               >
                 <div className="font-medium">{model.name}</div>
                 <div className="text-xs text-gray-500">{model.provider}</div>
@@ -406,7 +411,7 @@ export default function QueryBox({
               className="cursor-pointer hover:text-gray-700 transition"
               onClick={() => logUIInteraction("image upload")}
             >
-              <input type="file" accept="image/*" className="hidden" onChange={handleFileChange}/>
+              <input type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
                   d="M4 5h16v14H4z" />
@@ -445,17 +450,35 @@ export default function QueryBox({
             >
               {isLoading ? (
                 <svg className="animate-spin w-5 h-5 text-gray-500" viewBox="0 0 24 24">
-                  <circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                  <path className="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                  <circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
                 </svg>
               ) : (
                 <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2z"/>
+                  <path strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2z" />
                 </svg>
               )}
             </button>
           </div>
         </div>
+      </div>
+
+      {/* Shopping Mode Toggle - Absolute positioned above input, right side */}
+      <div className="absolute bottom-full right-0 mb-3 flex items-center gap-2">
+        <span className={`text-sm font-medium ${isShoppingMode ? "text-blue-600" : "text-gray-500"}`}>
+          Shopping Mode
+        </span>
+        <button
+          type="button"
+          onClick={onToggleShoppingMode}
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${isShoppingMode ? "bg-blue-600" : "bg-gray-200"
+            }`}
+        >
+          <span
+            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isShoppingMode ? "translate-x-6" : "translate-x-1"
+              }`}
+          />
+        </button>
       </div>
 
       {error && <div className="text-red-600 text-sm mt-2">{error}</div>}

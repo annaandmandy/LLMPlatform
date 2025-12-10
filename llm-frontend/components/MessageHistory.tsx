@@ -30,6 +30,7 @@ interface Message {
   citations?: Citation[];
   product_cards?: ProductCardData[];
   attachments?: { type: string; base64?: string; name?: string }[];
+  options?: string[];
 }
 
 interface MessageHistoryProps {
@@ -39,6 +40,7 @@ interface MessageHistoryProps {
   messagesEndRef: React.RefObject<HTMLDivElement>;
   isLoading?: boolean;
   thinkingText?: string;
+  onOptionSelect?: (option: string) => void;
 }
 
 function normalizeMarkdown(text: string) {
@@ -57,6 +59,7 @@ export default function MessageHistory({
   messagesEndRef,
   isLoading = false,
   thinkingText = "",
+  onOptionSelect,
 }: MessageHistoryProps) {
   const [clickedLinks, setClickedLinks] = useState<Set<string>>(new Set());
   const [expandedSources, setExpandedSources] = useState<Set<number>>(new Set());
@@ -104,7 +107,7 @@ export default function MessageHistory({
       console.error("Error logging click event:", err);
     }
   };
-  
+
   // Use react-markdown to render assistant replies
   const renderMarkdown = (text: string, query: string) => (
     <ReactMarkdown
@@ -119,9 +122,8 @@ export default function MessageHistory({
               target="_blank"
               rel="noopener noreferrer"
               onClick={() => handleLinkClick(link, query)}
-              className={`${
-                isClicked ? "text-indigo-600" : "text-blue-700"
-              } hover:text-blue-800 underline`}
+              className={`${isClicked ? "text-indigo-600" : "text-blue-700"
+                } hover:text-blue-800 underline`}
             >
               {children}
             </a>
@@ -207,22 +209,20 @@ export default function MessageHistory({
           message.role === "user"
             ? message.content
             : index > 0 && messages[index - 1].role === "user"
-            ? messages[index - 1].content
-            : "";
+              ? messages[index - 1].content
+              : "";
 
         const showSources = expandedSources.has(index);
 
         return (
           <div
             key={index}
-            className={`flex ${
-              message.role === "user" ? "justify-end" : "justify-start"
-            }`}
+            className={`flex ${message.role === "user" ? "justify-end" : "justify-start"
+              }`}
           >
             <div
-              className={`${
-                message.role === "user" ? "max-w-[75%] ml-auto" : "w-full"
-              } flex flex-col gap-3`}
+              className={`${message.role === "user" ? "max-w-[75%] ml-auto" : "w-full"
+                } flex flex-col gap-3`}
             >
               {/* Message Bubble */}
               <div
@@ -250,6 +250,21 @@ export default function MessageHistory({
                           className="w-full h-24 object-cover rounded-md border border-gray-200"
                         />
                       ))}
+                  </div>
+                )}
+
+                {/* Options Buttons */}
+                {message.role === "assistant" && message.options && message.options.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {message.options.map((option, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => onOptionSelect && onOptionSelect(option)}
+                        className="px-4 py-2 bg-blue-50 text-blue-700 text-sm font-medium rounded-full border border-blue-200 hover:bg-blue-100 hover:border-blue-300 transition-colors text-left"
+                      >
+                        {option}
+                      </button>
+                    ))}
                   </div>
                 )}
 
@@ -288,9 +303,8 @@ export default function MessageHistory({
                   )}
 
                 <div
-                  className={`text-xs mt-2 ${
-                    message.role === "user" ? "text-blue-100" : "text-gray-400"
-                  }`}
+                  className={`text-xs mt-2 ${message.role === "user" ? "text-blue-100" : "text-gray-400"
+                    }`}
                 >
                   {message.timestamp.toLocaleTimeString()}
                 </div>
