@@ -221,14 +221,16 @@ export default function MessageHistory({
               }`}
           >
             <div
-              className={`${message.role === "user" ? "max-w-[75%] ml-auto" : "w-full"
+              className={`${message.role === "user"
+                  ? "ml-auto mr-4 w-fit max-w-[75%]"
+                  : "w-full"
                 } flex flex-col gap-3`}
             >
               {/* Message Bubble */}
               <div
                 className={
                   message.role === "user"
-                    ? "max-w-[85%] ml-auto px-4 py-2.5 rounded-2xl bg-white border border-slate-200 shadow-sm text-slate-900 mb-3"
+                    ? "px-6 py-3.5 rounded-2xl bg-white border border-slate-200 shadow-sm text-slate-900"
                     : "bg-transparent text-gray-800"
                 }
               >
