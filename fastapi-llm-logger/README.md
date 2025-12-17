@@ -6,11 +6,15 @@ This is a FastAPI backend service that handles multi-user LLM interactions and l
 
 ## Features
 
-- **LLM Query Processing**: Unified access to OpenAI, Anthropic, Google, and OpenRouter models
-- **Event Logging**: Records clicks, browsing, conversions, and other interactions
-- **Data Export**: Retrieve all logged data for analysis
-- **Multi-User Support**: Handles multiple concurrent users
-- **MongoDB Storage**: All data stored in MongoDB Atlas
+- **Multi-Agent System**: Powered by LangGraph with specialized agents:
+  - `CoordinatorAgent`: Intent detection and routing
+  - `WriterAgent`: Generates final responses with context
+  - `ProductAgent`: Searches for products via SerpAPI
+  - `MemoryAgent`: Handles conversation history and RAG retrieval
+  - `ShoppingAgent`: Conducts diagnostic interviews for recommendations
+  - `VisionAgent`: Analyzes image attachments
+- **Unified Model Access**: Direct integration with OpenAI, Anthropic, Google Gemini, and OpenRouter
+- **Async MongoDB**: High-performance non-blocking writes for logging capabilities
 
 ## API Endpoints
 
@@ -101,11 +105,18 @@ cp .env.example .env
 ```
 
 Edit `.env`:
-```
-MONGODB_URI=mongodb+srv
+```bash
+MONGODB_URI=mongodb+srv://...
 MONGO_DB=llm_experiment
 
-OPENAI_API_KEY=sk-xxxxxxx
+# LLM Providers
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+GOOGLE_API_KEY=...
+OPENROUTER_API_KEY=sk-or-...
+
+# Tools
+SERPAPI_KEY=...
 ```
 
 ### 3. Run Locally

@@ -23,7 +23,8 @@ MongoDB Atlas (Cloud Database)
 ## Features
 
 ### Backend Features
-- Multi-model LLM support (OpenAI, Anthropic, Google, OpenRouter)
+- **Multi-Agent Architecture**: Custom LangGraph-based agent system (Coordinator, Writer, Product, Memory, Vision)
+- **Multi-model LLM Support**: Unified access to OpenAI, Anthropic, Google, and OpenRouter models
 - MongoDB storage for queries and events
 - RESTful API endpoints for queries and event logging
 - Data export functionality for analysis
@@ -316,8 +317,8 @@ curl -X POST http://localhost:8000/query \
 ### Backend
 - **FastAPI**: Modern Python web framework
 
-- **MongoDB**: NoSQL database for event storage
-- **PyMongo**: MongoDB driver for Python
+- **LangGraph**: For orchestrating multi-agent workflows
+- **MongoDB + PyMongo**: Async database driver for high-performance logging
 - **Uvicorn**: ASGI server
 
 ### Frontend

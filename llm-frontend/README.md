@@ -7,11 +7,12 @@ This is a Next.js frontend application for the LLM Brand Experiment platform. It
 ## Features
 
 - **Query Interface**: Simple, chat-style interface for entering questions
-- **Real-time Responses**: Display LLM-generated responses with proper formatting
+- **Rich Response Rendering**: Markdown support, code highlighting, and structured data display
+- **Interactive Product Cards**: Visual display of recommended products with images and prices
+- **Shopping Mode**: Specialized UI for guided shopping interviews
 - **Event Tracking**: Automatic logging of clicks, scrolls, and browsing behavior
-- **Session Management**: Unique user and session ID tracking via localStorage
+- **Session Management**: Unique user and session ID tracking
 - **Responsive Design**: Works seamlessly on desktop and mobile devices
-- **Vercel Ready**: Optimized for deployment on Vercel
 
 ## Tech Stack
 
@@ -213,7 +214,9 @@ The project uses Tailwind CSS. Modify:
 
 ## Future Enhancements
 
-- [ ] Add response streaming for real-time output
+- [x] Markdown & Code Highlighting support
+- [x] Product Card display components
+- [x] Shopping Mode specialized UI
 - [ ] Implement conversation history
 - [ ] Add export functionality for user data
 - [ ] Support for multiple LLM models
