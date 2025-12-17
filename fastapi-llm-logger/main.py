@@ -1235,6 +1235,45 @@ async def query_llm_stream(request: QueryRequest):
                 
                 yield f"data: {json.dumps(response_data)}\n\n"
             
+            # Log interaction to DB (Critical for history persistence)
+            if sessions_collection is not None and accumulated_response:
+                try:
+                    now_ts = int(datetime.utcnow().timestamp() * 1000)
+                    
+                    prompt_event = {
+                        "t": now_ts - 2000, # Approx start time
+                        "type": "prompt",
+                        "data": {
+                            "text": request.query,
+                            "attachments": request.attachments or [],
+                            "mode": request.mode
+                        }
+                    }
+                    
+                    resp_event = {
+                        "t": now_ts,
+                        "type": "model_response",
+                        "data": {
+                            "text": accumulated_response,
+                            "model": request.model_name,
+                            "provider": request.model_provider,
+                            "citations": accumulated_citations,
+                            "product_cards": accumulated_product_cards or [], 
+                            "mode": request.mode
+                        }
+                    }
+                    
+                    await sessions_collection.update_one(
+                        {"session_id": request.session_id},
+                        {
+                            "$push": {"events": {"$each": [prompt_event, resp_event]}},
+                            "$inc": {"message_pairs_logged": 1}
+                        }
+                    )
+                    logger.info(f"✅ Streamed query logged to session {request.session_id}")
+                except Exception as e:
+                    logger.error(f"Failed to log streamed interaction: {e}")
+
             yield "data: [DONE]\n\n"
             
         except Exception as e:

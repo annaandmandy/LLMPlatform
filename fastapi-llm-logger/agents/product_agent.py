@@ -85,7 +85,7 @@ class ProductAgent(BaseAgent):
         """
         query = request.get("query", "")
         llm_response = request.get("llm_response", "")
-        max_results = request.get("max_results", 3)
+        max_results = request.get("max_results", 1)
         logger.info("Extracting product mentions from response")
 
         try:

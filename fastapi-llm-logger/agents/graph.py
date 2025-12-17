@@ -170,7 +170,7 @@ async def product_node(state: AgentState):
     req = {
         "query": state["query"],
         "llm_response": state.get("response", ""),
-        "max_results": 3
+        "max_results": 1
     }
     
     try:

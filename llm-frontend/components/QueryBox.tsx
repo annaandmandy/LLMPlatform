@@ -14,6 +14,7 @@ interface QueryBoxProps {
   setSelectedModel: (model: string) => void;
   isShoppingMode?: boolean;
   onToggleShoppingMode?: () => void;
+  isReadOnly?: boolean;
 }
 
 interface AttachedMedia {
@@ -93,6 +94,7 @@ export default function QueryBox({
   setSelectedModel,
   isShoppingMode,
   onToggleShoppingMode,
+  isReadOnly = false,
 }: QueryBoxProps) {
   const [error, setError] = useState("");
   const [showModelSelector, setShowModelSelector] = useState(false);
@@ -265,11 +267,12 @@ export default function QueryBox({
             {/* Model Selector Icon */}
             <button
               type="button"
+              disabled={isReadOnly}
               onClick={() => {
                 setShowModelSelector(!showModelSelector);
                 logUIInteraction("model switch");
               }}
-              className="hover:text-gray-700 transition"
+              className="hover:text-gray-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M4 7h12M4 12h16M4 17h10" />
@@ -278,10 +281,13 @@ export default function QueryBox({
 
             {/* Attachment */}
             <label
-              className="cursor-pointer hover:text-gray-700 transition"
-              onClick={() => logUIInteraction("image upload")}
+              className={`cursor-pointer hover:text-gray-700 transition ${isReadOnly ? 'opacity-50 cursor-not-allowed' : ''}`}
+              onClick={(e) => {
+                if (isReadOnly) e.preventDefault();
+                else logUIInteraction("image upload");
+              }}
             >
-              <input type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
+              <input type="file" accept="image/*" className="hidden" onChange={handleFileChange} disabled={isReadOnly} />
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
                   d="M4 5h16v14H4z" />
@@ -297,10 +303,10 @@ export default function QueryBox({
             ref={textareaRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder={`Message ${currentModel?.name}`}
+            placeholder={isReadOnly ? "Read-only view of shared session" : `Message ${currentModel?.name}`}
             rows={1}
-            className="flex-1 resize-none bg-transparent focus:outline-none text-gray-800 placeholder-gray-400"
-            disabled={isLoading}
+            className="flex-1 resize-none bg-transparent focus:outline-none text-gray-800 placeholder-gray-400 disabled:text-gray-400 disabled:cursor-not-allowed"
+            disabled={isLoading || isReadOnly}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
@@ -315,7 +321,7 @@ export default function QueryBox({
             {/* Send */}
             <button
               type="submit"
-              disabled={isLoading || !query.trim()}
+              disabled={isLoading || isReadOnly || (!query.trim() && attachments.length === 0)}
               className="w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition disabled:opacity-40 disabled:hover:bg-gray-100"
             >
               {isLoading ? (

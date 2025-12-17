@@ -1,6 +1,7 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import Clarity from '@microsoft/clarity';
 import type { LocationData } from './useLocation';
+import { parseEventsToMessages } from '../lib/parseEvents';
 
 export interface Citation {
     title: string;
@@ -65,9 +66,46 @@ export const AVAILABLE_MODELS = [
 export function useChat({ userId, sessionId, location, isShoppingMode = false }: UseChatOptions) {
     const [messages, setMessages] = useState<Message[]>([]);
     const [isLoading, setIsLoading] = useState(false);
+    const [isReadOnly, setIsReadOnly] = useState(false);
     const [thinkingText, setThinkingText] = useState('');
     const [selectedModel, setSelectedModel] = useState('gpt-4o-mini-search-preview');
     const [memoryContext, setMemoryContext] = useState<Record<string, unknown> | null>(null);
+
+    // Load messages from backend when session starts
+    useEffect(() => {
+        const loadSessionMessages = async () => {
+            if (!sessionId) return;
+            // Reset read-only state when changing sessions
+            setIsReadOnly(false);
+
+            const backendUrl = (process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000').replace(/\/$/, '');
+
+            try {
+                const res = await fetch(`${backendUrl}/session/${sessionId}`);
+                if (!res.ok) {
+                    // Session doesn't exist yet, that's fine
+                    if (res.status === 404) return;
+                    throw new Error(`HTTP error! status: ${res.status}`);
+                }
+
+                const data = await res.json();
+                const loadedMessages = parseEventsToMessages(data.events || []);
+
+                if (loadedMessages.length > 0) {
+                    setMessages(loadedMessages);
+                }
+
+                // Check if session belongs to another user (Read Only Mode)
+                if (data.user_id && userId && data.user_id !== userId) {
+                    setIsReadOnly(true);
+                }
+            } catch (err) {
+                console.error('Failed to load session messages:', err);
+            }
+        };
+
+        loadSessionMessages();
+    }, [sessionId, userId]);
 
     const addMessage = useCallback((
         role: 'user' | 'assistant',
@@ -108,7 +146,7 @@ export function useChat({ userId, sessionId, location, isShoppingMode = false }:
             // Set thinking text
             const isProductQuery = PRODUCT_KEYWORDS.test(query);
             const thinkingStatus = isProductQuery
-                ? `Searching for products: ${query.slice(0, 80)}${query.length > 80 ? '...' : ''}`
+                ? `Searching for products: ${query.slice(0, 80)}${query.length > 80 ? '...' : ''} `
                 : query.slice(0, 100) + (query.length > 100 ? '...' : '');
             setThinkingText(thinkingStatus);
 
@@ -150,7 +188,7 @@ export function useChat({ userId, sessionId, location, isShoppingMode = false }:
                     }),
                 });
 
-                if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+                if (!res.ok) throw new Error(`HTTP error! status: ${res.status} `);
                 if (!res.body) throw new Error('No response body');
 
                 const reader = res.body.getReader();
@@ -235,6 +273,7 @@ export function useChat({ userId, sessionId, location, isShoppingMode = false }:
     return {
         messages,
         isLoading,
+        isReadOnly,
         thinkingText,
         selectedModel,
         setSelectedModel,

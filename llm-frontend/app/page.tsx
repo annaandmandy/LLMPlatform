@@ -62,6 +62,7 @@ export default function Home() {
   const {
     messages,
     isLoading,
+    isReadOnly,
     thinkingText,
     selectedModel,
     setSelectedModel,
@@ -73,6 +74,8 @@ export default function Home() {
     location,
     isShoppingMode,
   });
+
+
 
   useEffect(() => {
     // Check if user has already accepted terms
@@ -91,11 +94,24 @@ export default function Home() {
     }
     setUserId(id);
 
+    // Check URL for session parameter (for sharing)
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlSessionId = urlParams.get('session');
+
     // Generate or load session ID
-    let sId = sessionStorage.getItem("session_id");
-    if (!sId) {
-      sId = crypto.randomUUID();
+    let sId: string;
+    if (urlSessionId) {
+      // Use session from URL (shared link)
+      sId = urlSessionId;
       sessionStorage.setItem("session_id", sId);
+    } else {
+      // Use existing or create new session
+      sId = sessionStorage.getItem("session_id") || crypto.randomUUID();
+      sessionStorage.setItem("session_id", sId);
+
+      // Update URL to include session ID (for sharing)
+      const newUrl = `${window.location.pathname}?session=${sId}`;
+      window.history.replaceState({}, '', newUrl);
     }
     setSessionId(sId);
 
@@ -123,12 +139,21 @@ export default function Home() {
       } catch (err) {
         console.warn("Failed to fetch experiment id", err);
       }
-      setExperimentId("");
-      setExperimentDraft("");
-      setShowExperimentModal(true);
+
+      // Only show experiment modal for new sessions (no messages)
+      // For shared sessions with messages, skip the modal
+      if (messages.length === 0) {
+        setExperimentId("");
+        setExperimentDraft("");
+        setShowExperimentModal(true);
+      } else {
+        // Shared session with messages - use default experiment ID
+        setExperimentId(DEFAULT_EXPERIMENT_ID);
+        setShowExperimentModal(false);
+      }
     };
     fetchExperiment();
-  }, [sessionId]);
+  }, [sessionId, messages.length]);
 
   // NEW: Initialize session-based tracking (using the same sessionId as chat)
   useSession({
@@ -264,6 +289,11 @@ export default function Home() {
     const newSessionId = crypto.randomUUID();
     setSessionId(newSessionId);
     sessionStorage.setItem("session_id", newSessionId);
+
+    // Update URL to reflect new session
+    const newUrl = `${window.location.pathname}?session=${newSessionId}`;
+    window.history.pushState({}, '', newUrl);
+
     setMessages([]);
     setQuery("");
     setExperimentId("");
@@ -380,6 +410,7 @@ export default function Home() {
                   userId={userId}
                   sessionId={sessionId}
                   isLoading={isLoading}
+                  isReadOnly={isReadOnly}
                   selectedModel={selectedModel}
                   setSelectedModel={setSelectedModel}
                   isShoppingMode={isShoppingMode}
@@ -426,6 +457,7 @@ export default function Home() {
                   userId={userId}
                   sessionId={sessionId}
                   isLoading={isLoading}
+                  isReadOnly={isReadOnly}
                   selectedModel={selectedModel}
                   setSelectedModel={setSelectedModel}
                   isShoppingMode={isShoppingMode}
