@@ -138,8 +138,9 @@ class BaseAgent(ABC):
                 "execution_count": self.execution_count
             }
 
-            # MongoDB driver is synchronous; run insert in separate thread to avoid blocking loop
-            await asyncio.to_thread(self.db.agent_logs.insert_one, log_entry)
+            # Async insert
+            if self.db is not None:
+                await self.db.agent_logs.insert_one(log_entry)
 
         except Exception as e:
             logger.warning(f"Failed to log execution: {str(e)}")

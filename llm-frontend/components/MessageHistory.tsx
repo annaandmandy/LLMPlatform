@@ -222,8 +222,8 @@ export default function MessageHistory({
           >
             <div
               className={`${message.role === "user"
-                  ? "ml-auto mr-4 w-fit max-w-[75%]"
-                  : "w-full"
+                ? "ml-auto mr-4 w-fit max-w-[75%]"
+                : "w-full"
                 } flex flex-col gap-3`}
             >
               {/* Message Bubble */}
@@ -255,18 +255,24 @@ export default function MessageHistory({
                   </div>
                 )}
 
-                {/* Options Buttons */}
+                {/* Shopping Mode Options */}
                 {message.role === "assistant" && message.options && message.options.length > 0 && (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {message.options.map((option, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => onOptionSelect && onOptionSelect(option)}
-                        className="px-4 py-2 bg-blue-50 text-blue-700 text-sm font-medium rounded-full border border-blue-200 hover:bg-blue-100 hover:border-blue-300 transition-colors text-left"
-                      >
-                        {option}
-                      </button>
-                    ))}
+                  <div className="mt-4 space-y-2">
+                    <div className="text-sm font-medium text-gray-600 mb-2">
+                      💬 Choose an option:
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {message.options.map((option, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => onOptionSelect && onOptionSelect(option)}
+                          className="group relative px-5 py-2.5 bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-700 text-sm font-medium rounded-xl border border-blue-200 hover:from-blue-100 hover:to-indigo-100 hover:border-blue-300 hover:shadow-md transition-all duration-200 text-left transform hover:scale-105"
+                        >
+                          <span className="relative z-10">{option}</span>
+                          <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-blue-400 to-indigo-400 opacity-0 group-hover:opacity-10 transition-opacity duration-200" />
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 )}
 
@@ -347,6 +353,20 @@ export default function MessageHistory({
                     <span className="font-medium text-slate-700 overflow-hidden text-ellipsis">
                       {thinkingText.replace("Searching for products: ", "")}
                     </span>
+                  </>
+                ) : thinkingText.includes("shopping") || thinkingText.includes("Shopping") ? (
+                  <>
+                    <svg className="w-3.5 h-3.5 text-indigo-600 shrink-0 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+                    </svg>
+                    <span className="text-slate-700 overflow-hidden text-ellipsis">{thinkingText}</span>
+                  </>
+                ) : thinkingText.includes("Processing:") ? (
+                  <>
+                    <svg className="w-3.5 h-3.5 text-purple-600 shrink-0 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    <span className="text-slate-700 overflow-hidden text-ellipsis">{thinkingText}</span>
                   </>
                 ) : (
                   <>

@@ -10,7 +10,7 @@ This backend handles:
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 import asyncio
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict
 from typing import Optional, Dict, Any, List
 from datetime import datetime
@@ -20,10 +20,11 @@ import logging
 import warnings
 from pathlib import Path
 from dotenv import load_dotenv
-from pymongo import MongoClient, ReturnDocument
+from pymongo import ReturnDocument
 from bson import ObjectId
 import requests
 from openai import OpenAI
+from database import connect_to_mongo
 import anthropic
 from google import genai
 from google.genai import types
@@ -55,11 +56,33 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup_event():
     """Initialize multi-agent system on startup"""
+    global db, queries_collection, events_collection, sessions_collection
+    global summaries_collection, vectors_collection, products_collection
+    global agent_logs_collection, memories_collection, files_collection
+
     try:
         UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     except Exception as e:
         logger.warning(f"Unable to create upload directory {UPLOAD_DIR}: {e}")
-    initialize_agents()
+    
+    # Connect to MongoDB (Async)
+    db = await connect_to_mongo()
+    if db is not None:
+        queries_collection = db["queries"]
+        events_collection = db["events"]
+        sessions_collection = db["sessions"]
+        summaries_collection = db["summaries"]
+        vectors_collection = db["vectors"]
+        products_collection = db["products"]
+        agent_logs_collection = db["agent_logs"]
+        memories_collection = db["memories"]
+        files_collection = db["files"]
+        logger.info("✅ Connected to MongoDB (Async)")
+        
+        # Initialize agents with async db
+        initialize_agents()
+    else:
+        logger.error("❌ Failed to connect to MongoDB")
 
 # ==== MONGODB CONFIG ====
 MONGODB_URI = os.getenv("MONGODB_URI")
@@ -73,25 +96,19 @@ ALLOWED_MIME_TYPES = set(
     else []
 )
 
-try:
-    mongo_client = MongoClient(MONGODB_URI)
-    db = mongo_client[MONGO_DB]
-    queries_collection = db["queries"]
-    events_collection = db["events"]
-    sessions_collection = db["sessions"]  # NEW: Session-based tracking
-
-    # NEW: Multi-agent collections
-    summaries_collection = db["summaries"]
-    vectors_collection = db["vectors"]
-    products_collection = db["products"]
-    agent_logs_collection = db["agent_logs"]
-    memories_collection = db["memories"]
-    files_collection = db["files"]
-
-    logger.info("✅ Connected to MongoDB")
-except Exception as e:
-    logger.error(f"❌ MongoDB connection failed: {e}")
-    db = None
+# ==== MONGODB CONFIG ====
+# Collections will be initialized in startup_event
+mongo_client = None
+db = None
+queries_collection = None
+events_collection = None
+sessions_collection = None
+summaries_collection = None
+vectors_collection = None
+products_collection = None
+agent_logs_collection = None
+memories_collection = None
+files_collection = None
 
 # ==== API KEYS ====
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -275,6 +292,7 @@ def _save_upload(upload: UploadFile) -> Dict[str, Any]:
 from agents import CoordinatorAgent, MemoryAgent, ProductAgent, WriterAgent, VisionAgent, ShoppingAgent
 from agents.writer_agent import DEFAULT_SYSTEM_PROMPT
 from utils.intent_classifier import detect_intent
+from agents.graph import graph_app, set_agents
 
 # Initialize agents
 coordinator_agent = None
@@ -313,9 +331,18 @@ def initialize_agents():
         }
         writer_agent.set_llm_functions(llm_functions)
 
-        # Link agents to coordinator
+        # Link agents to coordinator (kept for backward compatibility if needed)
         coordinator_agent.set_agents(memory_agent, product_agent, writer_agent, vision_agent, shopping_agent)
 
+        # Inject agents into LangGraph
+        set_agents({
+            "memory_agent": memory_agent,
+            "product_agent": product_agent,
+            "writer_agent": writer_agent,
+            "vision_agent": vision_agent,
+            "shopping_agent": shopping_agent,
+            "coordinator_agent": coordinator_agent
+        })
 
         logger.info("✅ Multi-agent system initialized successfully")
 
@@ -759,7 +786,7 @@ async def query_llm(request: QueryRequest):
         location_data = request.location.model_dump(exclude_none=True) if request.location else None
         attachments = request.attachments or []
         if location_data is None and sessions_collection is not None:
-            session_env = sessions_collection.find_one(
+            session_env = await sessions_collection.find_one(
                 {"session_id": request.session_id},
                 {"environment.location": 1}
             )
@@ -772,7 +799,7 @@ async def query_llm(request: QueryRequest):
 
         # Try using multi-agent system first
         if location_data and sessions_collection is not None:
-            sessions_collection.update_one(
+            await sessions_collection.update_one(
                 {"session_id": request.session_id},
                 {"$set": {"environment.location": location_data}}
             )
@@ -783,41 +810,58 @@ async def query_llm(request: QueryRequest):
             initialize_agents()
 
         if coordinator_agent is not None:
-            logger.info("🤖 Using multi-agent system")
+            logger.info("🤖 Using LangGraph multi-agent system")
 
-            # Prepare request for coordinator
-            agent_request = {
+            # Prepare LangGraph state
+            initial_state = {
                 "query": processed_query,
-                "session_id": request.session_id,
                 "user_id": request.user_id,
-                "model": model,
+                "session_id": request.session_id,
                 "history": history_for_agents,
-                "intent": intent_label,
-                "forced_intent_result": intent_info,
-                "location": location_data,
-                "use_memory": True,
-                "attachments": attachments,
                 "mode": request.mode,
+                "attachments": attachments,
+                "location": location_data,
+                "model": model,
+                "agents_used": []
             }
 
-            # Run through multi-agent system
-            result = await coordinator_agent.run(agent_request)
-            agent_output = result["output"]
+            # Run graph
+            graph_output = await graph_app.ainvoke(initial_state)
 
-            response_text = agent_output["response"]
-            citations = agent_output.get("citations", [])
-            tokens = agent_output.get("tokens")
-            raw = agent_output.get("raw_response", {})
+            # Map output to response variables
+            response_text = graph_output.get("response") or ""
+            citations = graph_output.get("citations") or []
+            product_cards = graph_output.get("product_cards")
+            product_structured = graph_output.get("structured_products")
+            memory_context = graph_output.get("memory_context")
+            intent_label = graph_output.get("intent")
+            
+            # Handle Shopping Mode specialized output
+            shopping_status = graph_output.get("shopping_status")
+            if shopping_status == "question":
+                response_text = graph_output["response"]
+                options = graph_output.get("shopping_result", {}).get("options")
+                
+                # Return intermediate question directly
+                return {
+                    "response": response_text,
+                    "citations": [],
+                    "product_cards": [],
+                    "tokens": None,
+                    "intent": "shopping_interview",
+                    "options": options,
+                    "model_used": model,
+                    "memory_context": memory_context
+                }
+
+            tokens = None # Token tracking needs update in graph response if critical
+            raw = {} 
+
             intent_info = {
-                "intent": agent_output.get("intent"),
-                "confidence": agent_output.get("intent_confidence"),
-                "agents_used": agent_output.get("agents_used", [])
+                "intent": intent_label,
+                "confidence": graph_output.get("intent_confidence"),
+                "agents_used": graph_output.get("agents_used", [])
             }
-
-            # Extract product cards if present
-            product_cards = agent_output.get("product_cards")
-            product_structured = agent_output.get("product_json")
-            memory_context = agent_output.get("memory_context")
 
             # Store embeddings for RAG (async, don't wait)
             if memory_agent and not attachments:
@@ -1005,7 +1049,7 @@ async def query_llm(request: QueryRequest):
         }
 
         # Add both events to session (if session exists)
-        session_doc = sessions_collection.find_one_and_update(
+        session_doc = await sessions_collection.find_one_and_update(
             {"session_id": request.session_id},
             {
                 "$push": {"events": {"$each": [prompt_event, response_event]}},
@@ -1072,7 +1116,7 @@ async def query_llm(request: QueryRequest):
                 "text": f"API request failed: {str(e)}"
             }
         }
-        sessions_collection.update_one(
+        await sessions_collection.update_one(
             {"session_id": request.session_id},
             {"$push": {"events": error_event}}
         )
@@ -1090,12 +1134,123 @@ async def query_llm(request: QueryRequest):
                 "text": f"Error: {str(e)}"
             }
         }
-        sessions_collection.update_one(
+        await sessions_collection.update_one(
             {"session_id": request.session_id},
             {"$push": {"events": error_event}}
         )
 
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
+@app.post("/query/stream")
+async def query_llm_stream(request: QueryRequest):
+    """
+    Streaming version of /query endpoint using Server-Sent Events (SSE).
+    
+    Streams graph execution updates in real-time:
+    - Node transitions ("intent_detected", "shopping_started", etc.)
+    - Final response
+    
+    Client should use EventSource or fetch with stream reading.
+    """
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+    
+    if coordinator_agent is None:
+        raise HTTPException(status_code=503, detail="Multi-agent system not initialized")
+    
+    logger.info(f"🌊 Streaming query: {request.query} from user {request.user_id}")
+    
+    async def event_generator():
+        try:
+            # Prepare initial state (same as non-streaming)
+            history_messages = [
+                {"role": msg.role, "content": msg.content}
+                for msg in request.history
+            ] if request.history else []
+            
+            location_data = request.location.model_dump(exclude_none=True) if request.location else None
+            if location_data is None and sessions_collection is not None:
+                session_env = await sessions_collection.find_one(
+                    {"session_id": request.session_id},
+                    {"environment.location": 1}
+                )
+                if session_env:
+                    location_data = session_env.get("environment", {}).get("location")
+            
+            attachments = request.attachments or []
+            history_for_agents = history_messages[-6:]
+            
+            initial_state = {
+                "query": request.query,
+                "user_id": request.user_id,
+                "session_id": request.session_id,
+                "history": history_for_agents,
+                "mode": request.mode,
+                "attachments": attachments,
+                "location": location_data,
+                "model": request.model_name,
+                "agents_used": []
+            }
+            
+            # Stream graph execution
+            final_state = None
+            accumulated_response = ""
+            accumulated_citations = []
+            accumulated_product_cards = None
+            
+            async for event in graph_app.astream(initial_state):
+                # event is a dict with node name as key
+                for node_name, node_output in event.items():
+                    # Send update for each node
+                    update_data = {
+                        "type": "node",
+                        "node": node_name,
+                        "status": "completed"
+                    }
+                    yield f"data: {json.dumps(update_data)}\n\n"
+                    
+                    # Accumulate data from each node (skip if None)
+                    if node_output:
+                        if node_output.get("response"):
+                            accumulated_response = node_output["response"]
+                        if node_output.get("citations"):
+                            accumulated_citations = node_output["citations"]
+                        if node_output.get("product_cards"):
+                            accumulated_product_cards = node_output["product_cards"]
+                        
+                        final_state = node_output  # Keep last state for other fields
+            
+            # Send final response with accumulated data
+            if final_state:
+                response_data = {
+                    "type": "final",
+                    "response": accumulated_response or "",
+                    "citations": accumulated_citations or [],
+                    "product_cards": accumulated_product_cards,
+                    "options": final_state.get("shopping_result", {}).get("options") if final_state.get("shopping_result") else None,
+                    "intent": final_state.get("intent"),
+                    "agents_used": final_state.get("agents_used", [])
+                }
+                
+                yield f"data: {json.dumps(response_data)}\n\n"
+            
+            yield "data: [DONE]\n\n"
+            
+        except Exception as e:
+            logger.error(f"Streaming error: {e}")
+            error_data = {"type": "error", "error": str(e)}
+            yield f"data: {json.dumps(error_data)}\n\n"
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"  # Disable nginx buffering
+        }
+    )
 
 
 @app.post("/log_event")
@@ -1171,7 +1326,7 @@ async def start_session(request: SessionStartRequest):
         raise HTTPException(status_code=503, detail="Database not connected")
 
     # Check if session already exists
-    existing_session = sessions_collection.find_one({"session_id": request.session_id})
+    existing_session = await sessions_collection.find_one({"session_id": request.session_id})
 
     if existing_session:
         # Session already exists, don't create duplicate
@@ -1180,7 +1335,7 @@ async def start_session(request: SessionStartRequest):
                              else None)
         stored_location = existing_session.get("environment", {}).get("location")
         if incoming_location and not stored_location:
-            sessions_collection.update_one(
+            await sessions_collection.update_one(
                 {"session_id": request.session_id},
                 {"$set": {"environment.location": incoming_location}}
             )
@@ -1211,7 +1366,7 @@ async def log_session_event(request: SessionEventRequest):
     if db is None:
         raise HTTPException(status_code=503, detail="Database not connected")
 
-    result = sessions_collection.update_one(
+    result = await sessions_collection.update_one(
         {"session_id": request.session_id},
         {"$push": {"events": request.event.dict()}}
     )
@@ -1230,7 +1385,7 @@ async def end_session(request: SessionEndRequest):
     if db is None:
         raise HTTPException(status_code=503, detail="Database not connected")
 
-    result = sessions_collection.update_one(
+    result = await sessions_collection.update_one(
         {"session_id": request.session_id},
         {"$set": {"end_time": datetime.utcnow()}}
     )
@@ -1405,7 +1560,7 @@ async def get_session(session_id: str):
     if db is None:
         raise HTTPException(status_code=503, detail="Database not connected")
 
-    session = sessions_collection.find_one({"session_id": session_id}, {"_id": 0})
+    session = await sessions_collection.find_one({"session_id": session_id}, {"_id": 0})
 
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -1424,7 +1579,7 @@ async def get_session_experiment(session_id: str):
     """Get experiment_id for a session"""
     if db is None:
         raise HTTPException(status_code=503, detail="Database not connected")
-    session = sessions_collection.find_one({"session_id": session_id}, {"experiment_id": 1, "_id": 0})
+    session = await sessions_collection.find_one({"session_id": session_id}, {"experiment_id": 1, "_id": 0})
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     return {"experiment_id": session.get("experiment_id")}
@@ -1435,7 +1590,7 @@ async def update_session_experiment(session_id: str, payload: ExperimentPayload)
     """Update experiment_id for a session"""
     if db is None:
         raise HTTPException(status_code=503, detail="Database not connected")
-    result = sessions_collection.update_one(
+    result = await sessions_collection.update_one(
         {"session_id": session_id},
         {"$set": {"experiment_id": payload.experiment_id}}
     )

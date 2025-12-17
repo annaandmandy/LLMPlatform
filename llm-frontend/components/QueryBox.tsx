@@ -3,57 +3,15 @@
 import { useEffect, useRef, useState } from "react";
 import Clarity from "@microsoft/clarity";
 
-interface Citation {
-  title: string;
-  url: string;
-}
-
-interface ProductCardData {
-  title: string;
-  description?: string;
-  price?: string;
-  rating?: number;
-  reviews_count?: number;
-  image?: string;
-  url: string;
-  seller?: string;
-  tag?: string;
-  delivery?: string;
-}
-
-interface Message {
-  role: "user" | "assistant";
-  content: string;
-  citations?: Citation[];
-  product_cards?: ProductCardData[];
-  attachments?: { type: string; base64?: string; name?: string }[];
-}
-
 interface QueryBoxProps {
   query: string;
   setQuery: (query: string) => void;
-  addMessage: (
-    role: "user" | "assistant",
-    content: string,
-    citations?: Citation[],
-    product_cards?: ProductCardData[],
-    attachments?: { type: string; base64?: string; name?: string }[],
-    options?: string[]
-  ) => void;
-  setMemoryContext?: (context: any) => void;
+  onSendMessage: (query: string, attachments: AttachedMedia[]) => Promise<void>;
   userId: string;
   sessionId: string;
   isLoading: boolean;
-  setIsLoading: (loading: boolean) => void;
   selectedModel: string;
   setSelectedModel: (model: string) => void;
-  location?: {
-    latitude: number;
-    longitude: number;
-    accuracy?: number;
-  } | null;
-  messages?: Message[];
-  setThinkingText?: (text: string) => void;
   isShoppingMode?: boolean;
   onToggleShoppingMode?: () => void;
 }
@@ -112,13 +70,6 @@ async function resizeImageIfNeeded(
   });
 }
 
-// Client-side product intent detection for UI hints (not authoritative - backend decides)
-const PRODUCT_KEYWORDS = /\b(buy|purchase|recommend|best|top|cheap|affordable|review|compare|product|price|shop|shopping|deal|sale|gift|where to get|looking for|need a|want a|headphones|laptop|phone|camera|shoes|watch|tv|tablet|speaker|earbuds|keyboard|mouse|monitor|chair|desk|mattress|vacuum|blender|coffee|toaster)\b/i;
-
-function detectProductIntent(query: string): boolean {
-  return PRODUCT_KEYWORDS.test(query);
-}
-
 // ✅ Expanded models with provider info (and web-search enabled)
 const AVAILABLE_MODELS = [
   { id: "gpt-4o-mini-search-preview", name: "GPT-4o mini", provider: "openai" },
@@ -134,17 +85,12 @@ const AVAILABLE_MODELS = [
 export default function QueryBox({
   query,
   setQuery,
-  addMessage,
-  setMemoryContext,
+  onSendMessage,
   userId,
   sessionId,
   isLoading,
-  setIsLoading,
   selectedModel,
   setSelectedModel,
-  location,
-  messages = [],
-  setThinkingText,
   isShoppingMode,
   onToggleShoppingMode,
 }: QueryBoxProps) {
@@ -236,94 +182,18 @@ export default function QueryBox({
       return;
     }
 
-    const historyPayload =
-      messages.length > 0 ? messages.slice(-6).map(({ role, content }) => ({ role, content })) : [];
-    const attachmentPayload = attachments.map((a) => ({
-      type: a.type,
-      name: a.name,
-      mime: a.mime,
-      base64: a.dataUrl,
-      size: a.size,
-    }));
-
-    setIsLoading(true);
     setError("");
-
     logUIInteraction("send message");
 
-    const userQuery = query;
-    // Set thinking text with product search hint if detected
-    const isProductQuery = detectProductIntent(userQuery);
-    // For product queries, show the actual search query; otherwise show the question
-    const thinkingStatus = isProductQuery
-      ? `Searching for products: ${userQuery.slice(0, 80)}${userQuery.length > 80 ? '...' : ''}`
-      : userQuery.slice(0, 100) + (userQuery.length > 100 ? '...' : '');
-    setThinkingText?.(thinkingStatus);
-    addMessage("user", userQuery, undefined, undefined, attachments.map((a) => ({ type: a.type, base64: a.dataUrl, name: a.name })));
-    setQuery("");
-
-    // set up clarity tag
-    const currentModel = AVAILABLE_MODELS.find((m) => m.id === selectedModel) || AVAILABLE_MODELS[0];
-    const modelProvider = currentModel?.provider || "openai";
     try {
-      Clarity.setTag("selected_model", currentModel.id);
-      Clarity.setTag("selected_model_name", currentModel.name);
-      Clarity.setTag("selected_model_provider", modelProvider);
-    } catch (err) {
-      console.warn("Clarity tagging failed:", err);
-    }
-
-    try {
-      const backendUrl = (process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000").replace(/\/$/, "");
-
-      const res = await fetch(`${backendUrl}/query`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user_id: userId,
-          session_id: sessionId,
-          query: userQuery,
-          model_name: currentModel.id,
-          model_provider: modelProvider,
-          web_search: true, // still pass through for legacy behavior
-          // Always include memory context bundle; intent classifier handles product search server-side
-          use_memory: true,
-          history: historyPayload,
-          location,
-          attachments: attachmentPayload,
-          mode: isShoppingMode ? "shopping" : "chat",
-        }),
-      });
-
-      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-
-      const data = await res.json();
-      addMessage("assistant", data.response, data.citations, data.product_cards, data.attachments, data.options);
-      if (setMemoryContext) {
-        setMemoryContext(data.memory_context || null);
-      }
-      // Clear attachments after send
+      await onSendMessage(query, attachments);
+      setQuery("");
       setAttachments([]);
-
-      // ✅ log browsing event
-      await fetch(`${backendUrl}/log_event`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user_id: userId,
-          session_id: sessionId,
-          event_type: "browse",
-          query: userQuery,
-          page_url: window.location.href,
-        }),
-      });
     } catch (err) {
-      setError(`Failed to fetch response: ${err instanceof Error ? err.message : "Unknown error"}`);
-      console.error("Error fetching query:", err);
+      setError("Failed to send message: " + (err instanceof Error ? err.message : String(err)));
     } finally {
-      setIsLoading(false);
+      // Keep focus
       textareaRef.current?.focus();
-      setThinkingText?.("");
     }
   };
 

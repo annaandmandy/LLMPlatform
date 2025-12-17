@@ -43,7 +43,7 @@ class MemoryAgent(BaseAgent):
             self.sessions = db.sessions
             self.vectors = db.vectors
             self.summaries = db.summaries
-            self.memories = db.memories if "memories" in db.list_collection_names() else db["memories"]
+            self.memories = db["memories"]
         else:
             self.sessions = None
             self.vectors = None
@@ -108,10 +108,7 @@ class MemoryAgent(BaseAgent):
 
         try:
             # Get session messages from sessions collection
-            session = await asyncio.to_thread(
-                self.sessions.find_one,
-                {"session_id": session_id}
-            )
+            session = await self.sessions.find_one({"session_id": session_id})
             user_id = session.get("user_id") if session else None
 
             if not session:
@@ -252,7 +249,7 @@ class MemoryAgent(BaseAgent):
                 "timestamp": datetime.now()
             }
 
-            await asyncio.to_thread(self.vectors.insert_one, vector_doc)
+            await self.vectors.insert_one(vector_doc)
             logger.info(f"Stored embedding for {role} message (session: {session_id})")
 
         except Exception as e:
@@ -277,10 +274,7 @@ class MemoryAgent(BaseAgent):
         """
         try:
             # Check if summary document exists
-            summary_doc = await asyncio.to_thread(
-                self.summaries.find_one,
-                {"session_id": session_id}
-            )
+            summary_doc = await self.summaries.find_one({"session_id": session_id})
 
             summary_entry = {
                 "t": datetime.now(),
@@ -291,15 +285,13 @@ class MemoryAgent(BaseAgent):
 
             if summary_doc:
                 # Append to existing summaries
-                await asyncio.to_thread(
-                    self.summaries.update_one,
+                await self.summaries.update_one(
                     {"session_id": session_id},
                     {"$push": {"summaries": summary_entry}}
                 )
             else:
                 # Create new summary document
-                await asyncio.to_thread(
-                    self.summaries.insert_one,
+                await self.summaries.insert_one(
                     {
                         "session_id": session_id,
                         "user_id": user_id,
@@ -440,7 +432,7 @@ class MemoryAgent(BaseAgent):
             vector_filter["user_id"] = user_id
 
         cursor = self.vectors.find(vector_filter).sort("timestamp", -1).limit(200)
-        vectors = await asyncio.to_thread(list, cursor)
+        vectors = await cursor.to_list(length=200)
 
         # Optionally extend with cross-session samples for this user
         if include_cross_session and user_id and len(vectors) < 50:
@@ -449,7 +441,7 @@ class MemoryAgent(BaseAgent):
                 .sort("timestamp", -1)
                 .limit(200 - len(vectors))
             )
-            extra_vectors = await asyncio.to_thread(list, extra_cursor)
+            extra_vectors = await extra_cursor.to_list(length=200 - len(vectors))
             vectors.extend(extra_vectors)
 
         if len(vectors) == 0:
@@ -481,8 +473,7 @@ class MemoryAgent(BaseAgent):
         if not session_id or self.sessions is None:
             return []
 
-        session = await asyncio.to_thread(
-            self.sessions.find_one,
+        session = await self.sessions.find_one(
             {"session_id": session_id},
             {"events": {"$slice": -limit * 2}},
         )
@@ -516,10 +507,8 @@ class MemoryAgent(BaseAgent):
 
         summaries: List[Dict[str, Any]] = []
         for f in filters:
-            docs = await asyncio.to_thread(
-                list,
-                self.summaries.find(f).sort("created_at", -1).limit(2),
-            )
+            cursor = self.summaries.find(f).sort("created_at", -1).limit(2)
+            docs = await cursor.to_list(length=2)
             for doc in docs:
                 # Only take the newest summary entry per doc to save tokens
                 latest_entry = doc.get("summaries", [])[-1:] or []
@@ -552,10 +541,8 @@ class MemoryAgent(BaseAgent):
         if not user_id or self.memories is None:
             return []
 
-        memories = await asyncio.to_thread(
-            list,
-            self.memories.find({"user_id": user_id}).sort("updated_at", -1).limit(limit),
-        )
+        cursor = self.memories.find({"user_id": user_id}).sort("updated_at", -1).limit(limit)
+        memories = await cursor.to_list(length=limit)
         return [
             {
                 "key": mem.get("key"),

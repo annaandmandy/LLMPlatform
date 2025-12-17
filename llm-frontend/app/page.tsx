@@ -9,6 +9,9 @@ import TermsModal from "@/components/TermsModal";
 import ClearUserModal from "@/components/ClearUserModal";
 import { useSession } from "@/lib/useSession";
 import { useEventTracking } from "@/lib/useEventTracking";
+import { useLocation } from "@/hooks/useLocation";
+import { useChat } from "@/hooks/useChat";
+import type { Message } from "@/hooks/useChat";
 
 interface Citation {
   title: string;
@@ -28,16 +31,6 @@ interface ProductCardData {
   delivery?: string;
 }
 
-interface Message {
-  role: "user" | "assistant";
-  content: string;
-  timestamp: Date;
-  citations?: Citation[];
-  product_cards?: ProductCardData[];
-  attachments?: { type: string; base64?: string; name?: string }[];
-  options?: string[];
-}
-
 interface ChatSession {
   id: string;
   title: string;
@@ -48,32 +41,38 @@ interface ChatSession {
 
 const DEFAULT_EXPERIMENT_ID = "production_v1";
 
-interface LocationData {
-  latitude: number;
-  longitude: number;
-  accuracy?: number;
-}
-
 export default function Home() {
   const [query, setQuery] = useState("");
-  const [messages, setMessages] = useState<Message[]>([]);
   const [userId, setUserId] = useState("");
   const [sessionId, setSessionId] = useState("");
   const [experimentId, setExperimentId] = useState("");
   const [showExperimentModal, setShowExperimentModal] = useState(false);
   const [experimentDraft, setExperimentDraft] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const [selectedModel, setSelectedModel] = useState("gpt-4o-mini");
-  const [location, setLocation] = useState<LocationData | null>(null);
-  const [locationReady, setLocationReady] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [showClearUserModal, setShowClearUserModal] = useState(false);
-  const [, setMemoryContext] = useState<Record<string, unknown> | null>(null);
-  const [thinkingText, setThinkingText] = useState("");
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const [isShoppingMode, setIsShoppingMode] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Use location hook
+  const { location, locationReady } = useLocation();
+
+  // Use chat hook
+  const {
+    messages,
+    isLoading,
+    thinkingText,
+    selectedModel,
+    setSelectedModel,
+    sendMessage,
+    setMessages,
+  } = useChat({
+    userId,
+    sessionId,
+    location,
+    isShoppingMode,
+  });
 
   useEffect(() => {
     // Check if user has already accepted terms
@@ -103,44 +102,6 @@ export default function Home() {
     // Try to load existing session
     loadSession(sId);
   }, []);
-
-  useEffect(() => {
-    if (!sessionId) {
-      return;
-    }
-
-    let cancelled = false;
-    setLocationReady(false);
-
-    if (!("geolocation" in navigator)) {
-      setLocation(null);
-      setLocationReady(true);
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        if (cancelled) return;
-        setLocation({
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-          accuracy: position.coords.accuracy,
-        });
-        setLocationReady(true);
-      },
-      (error) => {
-        console.warn("Geolocation error:", error);
-        if (cancelled) return;
-        setLocation(null);
-        setLocationReady(true);
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
-
-    return () => {
-      cancelled = true;
-    };
-  }, [sessionId]);
 
   // Load experiment ID per session from backend
   useEffect(() => {
@@ -305,7 +266,6 @@ export default function Home() {
     sessionStorage.setItem("session_id", newSessionId);
     setMessages([]);
     setQuery("");
-    setMemoryContext(null);
     setExperimentId("");
     setExperimentDraft("");
     setShowExperimentModal(true);
@@ -320,13 +280,10 @@ export default function Home() {
     // Load selected session
     setSessionId(sId);
     sessionStorage.setItem("session_id", sId);
-    setMemoryContext(null);
     loadSession(sId);
   };
 
-  const addMessage = (role: "user" | "assistant", content: string, citations?: Citation[], product_cards?: ProductCardData[], attachments?: { type: string; base64?: string; name?: string }[], options?: string[]) => {
-    setMessages((prev) => [...prev, { role, content, citations, product_cards, attachments, options, timestamp: new Date() }]);
-  };
+  // addMessage is now handled by useChat hook
 
   const handleAcceptTerms = () => {
     localStorage.setItem("terms_accepted", "true");
@@ -354,53 +311,8 @@ export default function Home() {
   };
 
   const handleOptionSelect = async (option: string) => {
-    if (!userId || !sessionId) return;
-
-    // UI Updates
-    addMessage("user", option);
-    setIsLoading(true);
-    setThinkingText("Processing option...");
-
-    try {
-      const backendUrl = (process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000").replace(/\/$/, "");
-
-      const historyPayload = messages.slice(-6).map(({ role, content }) => ({ role, content }));
-      // Append current message to history payload effectively
-      historyPayload.push({ role: "user", content: option });
-
-      const res = await fetch(`${backendUrl}/query`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user_id: userId,
-          session_id: sessionId,
-          query: option,
-          model_name: selectedModel,
-          model_provider: "openai", // defaulting or logic to find provider
-          web_search: true,
-          use_memory: true,
-          history: historyPayload,
-          location,
-          mode: isShoppingMode ? "shopping" : "chat",
-        }),
-      });
-
-      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-
-      const data = await res.json();
-      addMessage("assistant", data.response, data.citations, data.product_cards, data.attachments, data.options);
-
-      if (setMemoryContext && data.memory_context) {
-        setMemoryContext(data.memory_context);
-      }
-
-    } catch (err) {
-      console.error("Error sending option:", err);
-      addMessage("assistant", "Sorry, I encountered an error processing your selection.");
-    } finally {
-      setIsLoading(false);
-      setThinkingText("");
-    }
+    // Use the sendMessage from useChat hook
+    await sendMessage(option);
   };
 
   return (
@@ -464,17 +376,12 @@ export default function Home() {
                 <QueryBox
                   query={query}
                   setQuery={setQuery}
-                  addMessage={addMessage}
-                  setMemoryContext={setMemoryContext}
+                  onSendMessage={sendMessage}
                   userId={userId}
                   sessionId={sessionId}
                   isLoading={isLoading}
-                  setIsLoading={setIsLoading}
                   selectedModel={selectedModel}
                   setSelectedModel={setSelectedModel}
-                  messages={messages}
-                  location={location}
-                  setThinkingText={setThinkingText}
                   isShoppingMode={isShoppingMode}
                   onToggleShoppingMode={() => setIsShoppingMode(!isShoppingMode)}
                 />
@@ -515,17 +422,12 @@ export default function Home() {
                 <QueryBox
                   query={query}
                   setQuery={setQuery}
-                  addMessage={addMessage}
-                  setMemoryContext={setMemoryContext}
+                  onSendMessage={sendMessage}
                   userId={userId}
                   sessionId={sessionId}
                   isLoading={isLoading}
-                  setIsLoading={setIsLoading}
                   selectedModel={selectedModel}
                   setSelectedModel={setSelectedModel}
-                  messages={messages}
-                  location={location}
-                  setThinkingText={setThinkingText}
                   isShoppingMode={isShoppingMode}
                   onToggleShoppingMode={() => setIsShoppingMode(!isShoppingMode)}
                 />
