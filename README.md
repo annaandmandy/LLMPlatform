@@ -5,7 +5,7 @@ A full-stack application for LLM interaction experiments with comprehensive user
 ## Project Overview
 
 This platform consists of two main components:
-1. **FastAPI Backend** - Handles LLM queries via LiteLLM and stores all interactions in MongoDB
+1. **FastAPI Backend** - Handles LLM queries and stores all interactions in MongoDB
 2. **Next.js Frontend** - Provides an interactive UI for users to query LLMs and automatically tracks user behavior
 
 ### Architecture
@@ -23,7 +23,7 @@ MongoDB Atlas (Cloud Database)
 ## Features
 
 ### Backend Features
-- Multi-model LLM support via LiteLLM
+- Multi-model LLM support (OpenAI, Anthropic, Google, OpenRouter)
 - MongoDB storage for queries and events
 - RESTful API endpoints for queries and event logging
 - Data export functionality for analysis
@@ -315,7 +315,7 @@ curl -X POST http://localhost:8000/query \
 
 ### Backend
 - **FastAPI**: Modern Python web framework
-- **LiteLLM**: Unified LLM API interface
+
 - **MongoDB**: NoSQL database for event storage
 - **PyMongo**: MongoDB driver for Python
 - **Uvicorn**: ASGI server

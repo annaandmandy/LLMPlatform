@@ -1,4 +1,4 @@
-# FastAPI + LiteLLM + MongoDB Backend
+# FastAPI + MongoDB Backend
 
 ## Overview
 
@@ -6,7 +6,7 @@ This is a FastAPI backend service that handles multi-user LLM interactions and l
 
 ## Features
 
-- **LLM Query Processing**: Uses LiteLLM for unified multi-model access
+- **LLM Query Processing**: Unified access to OpenAI, Anthropic, Google, and OpenRouter models
 - **Event Logging**: Records clicks, browsing, conversions, and other interactions
 - **Data Export**: Retrieve all logged data for analysis
 - **Multi-User Support**: Handles multiple concurrent users
@@ -104,7 +104,7 @@ Edit `.env`:
 ```
 MONGODB_URI=mongodb+srv
 MONGO_DB=llm_experiment
-LITELLM_MODEL=gpt-4o-mini
+
 OPENAI_API_KEY=sk-xxxxxxx
 ```
 
