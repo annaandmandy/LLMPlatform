@@ -842,26 +842,28 @@ async def query_llm(request: QueryRequest):
                 response_text = graph_output["response"]
                 options = graph_output.get("shopping_result", {}).get("options")
                 
-                # Return intermediate question directly
-                return {
-                    "response": response_text,
-                    "citations": [],
-                    "product_cards": [],
-                    "tokens": None,
+                # Don't return here! We need to log this interaction
+                # Mark as interview for logging
+                intent_info = {
                     "intent": "shopping_interview",
-                    "options": options,
-                    "model_used": model,
-                    "memory_context": memory_context
+                    "confidence": 1.0,
+                    "agents_used": ["CoordinatorAgent", "ShoppingAgent"]
                 }
+                # Ensure options are passed down
+                # Variables are already set: response_text, options
+            else:
+                options = None  # Ensure it is None if not in shopping interview mode
+                intent_info = None # Initialize to None for non-shopping path
 
             tokens = None # Token tracking needs update in graph response if critical
             raw = {} 
 
-            intent_info = {
-                "intent": intent_label,
-                "confidence": graph_output.get("intent_confidence"),
-                "agents_used": graph_output.get("agents_used", [])
-            }
+            if not intent_info:
+                 intent_info = {
+                    "intent": intent_label,
+                    "confidence": graph_output.get("intent_confidence"),
+                    "agents_used": graph_output.get("agents_used", [])
+                }
 
             # Store embeddings for RAG (async, don't wait)
             if memory_agent and not attachments:
@@ -972,6 +974,10 @@ async def query_llm(request: QueryRequest):
         end_time_ms = int(end_time.timestamp() * 1000)
         latency_ms = (end_time - start_time).total_seconds() * 1000
 
+        logger.info(f"🔍 Reached logging section. Session: {request.session_id}")
+        logger.info(f"🔍 response_text length: {len(response_text) if response_text else 0}")
+        logger.info(f"🔍 citations count: {len(citations) if citations else 0}")
+
         # Log to MongoDB (keeping for backward compatibility)
         query_log = {
             "user_id": request.user_id,
@@ -1008,7 +1014,15 @@ async def query_llm(request: QueryRequest):
         if product_structured:
             query_log["product_structured"] = product_structured
 
-        queries_collection.insert_one(query_log)
+        logger.info(f"📝 Attempting to insert query log into DB: {query_log.get('session_id')}")
+        logger.info(f"📝 Query log keys: {list(query_log.keys())}")
+        try:
+            insert_result = await queries_collection.insert_one(query_log)
+            logger.info(f"✅ Query log inserted with ID: {insert_result.inserted_id}")
+        except Exception as insert_error:
+            logger.error(f"❌ Failed to insert query log: {insert_error}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
 
         # NEW: Also log to sessions collection
         # Log the prompt event
@@ -1099,8 +1113,8 @@ async def query_llm(request: QueryRequest):
             response_data["agents_used"] = intent_info.get("agents_used")
 
         # NEW: Pass options if present (from ShoppingAgent)
-        if agent_output.get("options"):
-            response_data["options"] = agent_output.get("options")
+        if options:
+            response_data["options"] = options
 
         return response_data
 
@@ -1123,7 +1137,9 @@ async def query_llm(request: QueryRequest):
 
         raise HTTPException(status_code=500, detail=f"API request failed: {str(e)}")
     except Exception as e:
+        import traceback
         logger.error(f"Error processing query: {e}")
+        logger.error(f"Full traceback: {traceback.format_exc()}")
 
         # Log error event to session
         error_event = {
@@ -1271,6 +1287,26 @@ async def query_llm_stream(request: QueryRequest):
                         }
                     )
                     logger.info(f"✅ Streamed query logged to session {request.session_id}")
+                    
+                    # Also log to queries collection for backward compatibility
+                    query_log = {
+                        "user_id": request.user_id,
+                        "session_id": request.session_id,
+                        "query": request.query,
+                        "response": accumulated_response,
+                        "model_provider": request.model_provider,
+                        "model_used": request.model_name,
+                        "timestamp": datetime.utcnow(),
+                        "citations": accumulated_citations,
+                        "latency_ms": 2000,  # Approximate
+                        "intent": final_state.get("intent") if final_state else None,
+                        "agents_used": final_state.get("agents_used", []) if final_state else []
+                    }
+                    if accumulated_product_cards:
+                        query_log["product_cards"] = accumulated_product_cards
+                    
+                    await queries_collection.insert_one(query_log)
+                    logger.info(f"✅ Streamed query also logged to queries collection")
                 except Exception as e:
                     logger.error(f"Failed to log streamed interaction: {e}")
 
