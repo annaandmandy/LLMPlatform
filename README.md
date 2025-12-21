@@ -1,5 +1,7 @@
 # LLM Platform - ChatGPT Simulator with Event Tracking
 
+View Live Website here: https://llm-platform.vercel.app/
+
 A full-stack application for LLM interaction experiments with comprehensive user event tracking and analytics.
 
 ## Project Overview
@@ -407,5 +409,3 @@ For issues and questions:
 Generated with Claude Code based on comprehensive specifications for LLM interaction logging and analysis.
 
 ---
-
-**Happy Experimenting!** 🚀
