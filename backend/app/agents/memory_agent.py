@@ -15,6 +15,8 @@ import numpy as np
 from .base_agent import BaseAgent
 from app.services.embedding_service import embedding_service
 from app.db.repositories.summary_repo import SummaryRepository
+from app.db.repositories.session_repo import SessionRepository
+from app.db.repositories.query_repo import QueryRepository
 from openai import OpenAI
 import os
 
@@ -42,15 +44,15 @@ class MemoryAgent(BaseAgent):
         super().__init__(name="MemoryAgent", db=db)
         self.summary_interval = summary_interval
         if db is not None:
-            self.sessions = db.sessions
-            self.vectors = db.vectors
-            self.memories = db["memories"]
+            self.memories = db["memories"]  # Key/value memories collection
             self.summary_repo = SummaryRepository(db)
+            self.session_repo = SessionRepository(db)
+            self.query_repo = QueryRepository(db)  # Vectors stored in queries collection
         else:
-            self.sessions = None
-            self.vectors = None
             self.memories = None
             self.summary_repo = None
+            self.session_repo = None
+            self.query_repo = None
 
     async def execute(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -109,8 +111,11 @@ class MemoryAgent(BaseAgent):
             return {"summary": "No session ID provided"}
 
         try:
-            # Get session messages from sessions collection
-            session = await self.sessions.find_one({"session_id": session_id})
+            # Get session messages using repository
+            session = await self.session_repo.get_session(
+                session_id=session_id,
+                include_events=True
+            )
             user_id = session.get("user_id") if session else None
 
             if not session:
@@ -237,25 +242,13 @@ class MemoryAgent(BaseAgent):
             user_id: Optional user identifier
         """
         try:
-            # Generate embedding
-            embedding = await embedding_service.generate_embedding(content)
-
-            # Store in vectors collection
-            vector_doc = {
-                "session_id": session_id,
-                "user_id": user_id,
-                "message_index": message_index,
-                "role": role,
-                "content": content,
-                "embedding": embedding,
-                "timestamp": datetime.now()
-            }
-
-            await self.vectors.insert_one(vector_doc)
-            logger.info(f"Stored embedding for {role} message (session: {session_id})")
+            # Note: Embeddings are now stored automatically in queries collection
+            # when queries are logged via QueryService. This method is kept for
+            # compatibility but may not be actively used.
+            logger.info(f"Embedding storage handled by QueryService for {role} message (session: {session_id})")
 
         except Exception as e:
-            logger.error(f"Error storing embedding: {str(e)}")
+            logger.error(f"Error in message embedding: {str(e)}")
 
     async def _store_summary(
         self,
@@ -408,28 +401,29 @@ class MemoryAgent(BaseAgent):
         include_cross_session: bool = True,
     ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """
-        Run semantic search over vectors for the user/session.
+        Run semantic search over queries with embeddings using repository.
         """
-        if self.vectors is None:
+        if self.query_repo is None:
             return [], []
 
-        vector_filter: Dict[str, Any] = {}
+        # Get queries with embeddings from the queries collection
         if session_id:
-            vector_filter["session_id"] = session_id
-        if user_id:
-            vector_filter["user_id"] = user_id
+            vectors = await self.query_repo.get_session_queries(session_id=session_id, limit=200)
+        elif user_id:
+            vectors = await self.query_repo.get_user_query_history(user_id=user_id, limit=200)
+        else:
+            vectors = []
 
-        cursor = self.vectors.find(vector_filter).sort("timestamp", -1).limit(200)
-        vectors = await cursor.to_list(length=200)
+        # Filter only those with embeddings
+        vectors = [v for v in vectors if v.get("embedding")]
 
         # Optionally extend with cross-session samples for this user
         if include_cross_session and user_id and len(vectors) < 50:
-            extra_cursor = (
-                self.vectors.find({"user_id": user_id})
-                .sort("timestamp", -1)
-                .limit(200 - len(vectors))
+            extra_vectors = await self.query_repo.get_user_query_history(
+                user_id=user_id,
+                limit=200 - len(vectors)
             )
-            extra_vectors = await extra_cursor.to_list(length=200 - len(vectors))
+            extra_vectors = [v for v in extra_vectors if v.get("embedding")]
             vectors.extend(extra_vectors)
 
         if len(vectors) == 0:
@@ -474,14 +468,14 @@ class MemoryAgent(BaseAgent):
 
     async def _get_recent_messages(self, session_id: Optional[str], limit: int = 6) -> List[Dict[str, Any]]:
         """
-        Return the most recent prompt/response pairs from the session events.
+        Return the most recent prompt/response pairs from the session events using repository.
         """
-        if not session_id or self.sessions is None:
+        if not session_id or self.session_repo is None:
             return []
 
-        session = await self.sessions.find_one(
-            {"session_id": session_id},
-            {"events": {"$slice": -limit * 2}},
+        session = await self.session_repo.get_session(
+            session_id=session_id,
+            include_events=True
         )
         if not session:
             return []

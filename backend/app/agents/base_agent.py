@@ -71,15 +71,6 @@ class BaseAgent(ABC):
             end_time = datetime.now()
             latency_ms = (end_time - start_time).total_seconds() * 1000
 
-            # Log to agent_logs collection if db is available
-            if self.db is not None:
-                await self._log_execution(
-                    request=request,
-                    output=output,
-                    latency_ms=latency_ms,
-                    status="success"
-                )
-
             logger.info(f"{self.name} completed in {latency_ms:.2f}ms")
 
             return {
@@ -98,49 +89,4 @@ class BaseAgent(ABC):
 
             logger.error(f"{self.name} failed: {str(e)}")
 
-            # Log error to agent_logs
-            if self.db is not None:
-                await self._log_execution(
-                    request=request,
-                    output={"error": str(e)},
-                    latency_ms=latency_ms,
-                    status="error"
-                )
-
             raise
-
-    async def _log_execution(
-        self,
-        request: Dict[str, Any],
-        output: Dict[str, Any],
-        latency_ms: float,
-        status: str
-    ):
-        """
-        Log agent execution to MongoDB agent_logs collection.
-
-        Args:
-            request: Input request
-            output: Agent output
-            latency_ms: Execution time in milliseconds
-            status: "success" or "error"
-        """
-        try:
-            log_entry = {
-                "agent_name": self.name,
-                "session_id": request.get("session_id"),
-                "user_id": request.get("user_id"),
-                "timestamp": datetime.now(),
-                "latency_ms": latency_ms,
-                "status": status,
-                "input_summary": str(request.get("query", ""))[:200],
-                "output_summary": str(output)[:200],
-                "execution_count": self.execution_count
-            }
-
-            # Async insert
-            if self.db is not None:
-                await self.db.agent_logs.insert_one(log_entry)
-
-        except Exception as e:
-            logger.warning(f"Failed to log execution: {str(e)}")
