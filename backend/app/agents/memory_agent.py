@@ -44,12 +44,10 @@ class MemoryAgent(BaseAgent):
         super().__init__(name="MemoryAgent", db=db)
         self.summary_interval = summary_interval
         if db is not None:
-            self.memories = db["memories"]  # Key/value memories collection
             self.summary_repo = SummaryRepository(db)
             self.session_repo = SessionRepository(db)
             self.query_repo = QueryRepository(db)  # Vectors stored in queries collection
         else:
-            self.memories = None
             self.summary_repo = None
             self.session_repo = None
             self.query_repo = None
@@ -205,13 +203,11 @@ class MemoryAgent(BaseAgent):
 
             recent_messages = await self._get_recent_messages(session_id, limit=6)
             summaries = await self._get_summaries(user_id=user_id, session_id=session_id)
-            memories = await self._get_user_memories(user_id=user_id, limit=8)
 
             bundle = {
-                "context": context,
+                "context": context,  # Similarity search results
                 "recent_messages": recent_messages,
                 "summaries": summaries,
-                "memories": memories,
                 "query_embedding_dim": len(query_embedding),
             }
 
@@ -503,22 +499,3 @@ class MemoryAgent(BaseAgent):
             user_id=user_id,
             session_id=session_id
         )
-
-    async def _get_user_memories(self, user_id: Optional[str], limit: int = 8) -> List[Dict[str, Any]]:
-        """
-        Return stored key/value memories for the user (if the collection exists).
-        """
-        if not user_id or self.memories is None:
-            return []
-
-        cursor = self.memories.find({"user_id": user_id}).sort("updated_at", -1).limit(limit)
-        memories = await cursor.to_list(length=limit)
-        return [
-            {
-                "key": mem.get("key"),
-                "value": mem.get("value"),
-                "updated_at": mem.get("updated_at"),
-                "tokenCount": mem.get("tokenCount"),
-            }
-            for mem in memories
-        ]
