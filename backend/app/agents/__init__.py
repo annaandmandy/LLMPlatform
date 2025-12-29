@@ -118,49 +118,51 @@ def _get_llm_functions():
     """
     Get LLM provider functions for WriterAgent.
     
-    This will be updated after provider migration to import from app.providers.
-    For now, it attempts to import from the old main.py if available.
+    Uses the new ProviderFactory from app.providers.
     
     Returns:
         dict: Dictionary of LLM provider functions
     """
     try:
-        # TODO: Update this after provider migration (Phase 3)
-        # Will become:
-        # from app.providers.factory import ProviderFactory
-        # return ProviderFactory.get_all_providers()
+        from app.providers.factory import ProviderFactory
         
-        # For now, try to import from old main.py
-        import sys
-        from pathlib import Path
-        
-        old_main_path = Path(__file__).parent.parent / "main.py"
-        if old_main_path.exists():
-            logger.info("Attempting to import LLM functions from existing main.py")
-            
-            # Import the functions
-            import importlib.util
-            spec = importlib.util.spec_from_file_location("main", old_main_path)
-            if spec and spec.loader:
-                main_module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(main_module)
-                
-                # Get the call_* functions
-                return {
-                    "openai": getattr(main_module, "call_openai", None),
-                    "anthropic": getattr(main_module, "call_anthropic", None),
-                    "google": getattr(main_module, "call_gemini", None),
-                    "openrouter": getattr(main_module, "call_openrouter", None),
-                    "openrouter_perplexity": getattr(main_module, "call_openrouter", None),
-                    "openrouter_grok": getattr(main_module, "call_openrouter", None),
-                }
-        
-        logger.warning("⚠️ LLM functions not available. Provider migration needed.")
-        return {}
+        logger.info("✅ Loading LLM functions from ProviderFactory")
+        return ProviderFactory.get_all_providers()
         
     except Exception as e:
-        logger.warning(f"Could not load LLM functions: {e}")
-        return {}
+        logger.warning(f"Could not load LLM functions from ProviderFactory: {e}")
+        logger.warning("⚠️ Falling back to old main.py import")
+        
+        # Fallback: try to import from old main.py if it exists
+        try:
+            import sys
+            from pathlib import Path
+            import importlib.util
+            
+            old_main_path = Path(__file__).parent.parent / "main.py"
+            if old_main_path.exists():
+                logger.info("Attempting to import LLM functions from existing main.py")
+                
+                spec = importlib.util.spec_from_file_location("main", old_main_path)
+                if spec and spec.loader:
+                    main_module = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(main_module)
+                    
+                    return {
+                        "openai": getattr(main_module, "call_openai", None),
+                        "anthropic": getattr(main_module, "call_anthropic", None),
+                        "google": getattr(main_module, "call_gemini", None),
+                        "openrouter": getattr(main_module, "call_openrouter", None),
+                        "openrouter_perplexity": getattr(main_module, "call_openrouter", None),
+                        "openrouter_grok": getattr(main_module, "call_openrouter", None),
+                    }
+            
+            logger.warning("⚠️ LLM functions not available")
+            return {}
+            
+        except Exception as fallback_err:
+            logger.warning(f"Fallback import also failed: {fallback_err}")
+            return {}
 
 
 def get_coordinator() -> Optional[CoordinatorAgent]:
