@@ -12,6 +12,7 @@ import { useEventTracking } from "@/lib/useEventTracking";
 import { useLocation } from "@/hooks/useLocation";
 import { useChat } from "@/hooks/useChat";
 import type { Message } from "@/hooks/useChat";
+import { getSessionExperiment, updateSessionExperiment } from "@/lib/apiClient";
 
 interface Citation {
   title: string;
@@ -124,17 +125,13 @@ export default function Home() {
     const fetchExperiment = async () => {
       if (!sessionId) return;
       try {
-        const backendUrl = (process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000").replace(/\/$/, "");
-        const res = await fetch(`${backendUrl}/session/${sessionId}/experiment`);
-        if (res.ok) {
-          const data = await res.json();
-          const expId = data.experiment_id || "";
-          if (expId) {
-            setExperimentId(expId);
-            setExperimentDraft(expId);
-            setShowExperimentModal(false);
-            return;
-          }
+        const data = await getSessionExperiment(sessionId);
+        const expId = data.experiment_id || "";
+        if (expId) {
+          setExperimentId(expId);
+          setExperimentDraft(expId);
+          setShowExperimentModal(false);
+          return;
         }
       } catch (err) {
         console.warn("Failed to fetch experiment id", err);
@@ -191,12 +188,7 @@ export default function Home() {
   const persistExperiment = async (value: string) => {
     if (!sessionId) return;
     try {
-      const backendUrl = (process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000").replace(/\/$/, "");
-      await fetch(`${backendUrl}/session/${sessionId}/experiment`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ experiment_id: value }),
-      });
+      await updateSessionExperiment(sessionId, { experiment_id: value });
       setExperimentId(value);
       setShowExperimentModal(false);
     } catch (err) {

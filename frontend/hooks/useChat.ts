@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from 'react';
 import Clarity from '@microsoft/clarity';
 import type { LocationData } from './useLocation';
 import { parseEventsToMessages } from '../lib/parseEvents';
+import { getSession, streamQuery, logEvent } from '../lib/apiClient';
 
 export interface Citation {
     title: string;
@@ -78,17 +79,8 @@ export function useChat({ userId, sessionId, location, isShoppingMode = false }:
             // Reset read-only state when changing sessions
             setIsReadOnly(false);
 
-            const backendUrl = (process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000').replace(/\/$/, '');
-
             try {
-                const res = await fetch(`${backendUrl}/session/${sessionId}`);
-                if (!res.ok) {
-                    // Session doesn't exist yet, that's fine
-                    if (res.status === 404) return;
-                    throw new Error(`HTTP error! status: ${res.status}`);
-                }
-
-                const data = await res.json();
+                const data = await getSession(sessionId, true);
                 const loadedMessages = parseEventsToMessages(data.events || []);
 
                 if (loadedMessages.length > 0) {
@@ -100,6 +92,10 @@ export function useChat({ userId, sessionId, location, isShoppingMode = false }:
                     setIsReadOnly(true);
                 }
             } catch (err) {
+                // Session doesn't exist yet or other error
+                if (err instanceof Error && err.message.includes('404')) {
+                    return; // Session not found is OK
+                }
                 console.error('Failed to load session messages:', err);
             }
         };
@@ -127,7 +123,6 @@ export function useChat({ userId, sessionId, location, isShoppingMode = false }:
                 return;
             }
 
-            const backendUrl = (process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000').replace(/\/$/, '');
             const currentModel = AVAILABLE_MODELS.find((m) => m.id === selectedModel) || AVAILABLE_MODELS[0];
             const modelProvider = currentModel?.provider || 'openai';
 
@@ -169,29 +164,22 @@ export function useChat({ userId, sessionId, location, isShoppingMode = false }:
             }
 
             try {
-                // Use streaming endpoint
-                const res = await fetch(`${backendUrl}/query/stream`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        user_id: userId,
-                        session_id: sessionId,
-                        query,
-                        model_name: currentModel.id,
-                        model_provider: modelProvider,
-                        web_search: true,
-                        use_memory: true,
-                        history: historyPayload,
-                        location,
-                        attachments: attachmentPayload,
-                        mode: isShoppingMode ? 'shopping' : 'chat',
-                    }),
+                // Use streaming endpoint via apiClient
+                const stream = await streamQuery({
+                    user_id: userId,
+                    session_id: sessionId,
+                    query,
+                    model_name: currentModel.id,
+                    model_provider: modelProvider,
+                    web_search: true,
+                    use_memory: true,
+                    history: historyPayload,
+                    location,
+                    attachments: attachmentPayload,
+                    mode: isShoppingMode ? 'shopping' : 'chat',
                 });
 
-                if (!res.ok) throw new Error(`HTTP error! status: ${res.status} `);
-                if (!res.body) throw new Error('No response body');
-
-                const reader = res.body.getReader();
+                const reader = stream.getReader();
                 const decoder = new TextDecoder();
                 let buffer = '';
                 let assistantMessage = '';
@@ -248,16 +236,9 @@ export function useChat({ userId, sessionId, location, isShoppingMode = false }:
                 }
 
                 // Log browse event
-                await fetch(`${backendUrl}/log_event`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        user_id: userId,
-                        session_id: sessionId,
-                        event_type: 'browse',
-                        query,
-                        page_url: window.location.href,
-                    }),
+                logEvent(sessionId, 'browse', {
+                    query,
+                    page_url: window.location.href,
                 });
             } catch (err) {
                 console.error('Error fetching query:', err);

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { logEvent } from "../lib/apiClient";
 
 interface EventTrackerProps {
   userId: string;
@@ -13,8 +14,6 @@ export default function EventTracker({ userId, sessionId }: EventTrackerProps) {
 
   useEffect(() => {
     if (!userId || !sessionId) return;
-
-    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
     // Track scroll events
     const handleScroll = () => {
@@ -33,26 +32,11 @@ export default function EventTracker({ userId, sessionId }: EventTrackerProps) {
         if (Math.abs(scrollPosition - lastScrollPositionRef.current) > 100) {
           lastScrollPositionRef.current = scrollPosition;
 
-          try {
-            await fetch(`${backendUrl}/log_event`, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                user_id: userId,
-                session_id: sessionId,
-                event_type: "scroll",
-                page_url: window.location.href,
-                extra_data: {
-                  scroll_position: scrollPosition,
-                  scroll_depth: scrollDepth,
-                },
-              }),
-            });
-          } catch (err) {
-            console.error("Error logging scroll event:", err);
-          }
+          logEvent(sessionId, 'scroll', {
+            page_url: window.location.href,
+            scrollY: scrollPosition,
+            direction: scrollPosition > lastScrollPositionRef.current ? "down" : "up",
+          });
         }
       }, 500); // Wait 500ms after user stops scrolling
     };

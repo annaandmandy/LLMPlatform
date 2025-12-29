@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Clarity from "@microsoft/clarity";
+import { logEvent } from "../lib/apiClient";
 
 interface QueryBoxProps {
   query: string;
@@ -104,23 +105,10 @@ export default function QueryBox({
 
   const logUIInteraction = async (action: string) => {
     if (!sessionId) return;
-    try {
-      const backendUrl = (process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000").replace(/\/$/, "");
-      await fetch(`${backendUrl}/session/event`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          session_id: sessionId,
-          event: {
-            t: Date.now(),
-            type: "click",
-            data: { text: action, label: action },
-          },
-        }),
-      });
-    } catch (err) {
-      console.warn("Failed to log UI interaction", err);
-    }
+    logEvent(sessionId, 'click', {
+      text: action,
+      label: action,
+    });
   };
 
   useEffect(() => {

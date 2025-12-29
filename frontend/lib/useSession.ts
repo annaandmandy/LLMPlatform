@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
+import { startSession, endSession } from './apiClient';
 
 interface LocationInfo {
   latitude: number;
@@ -65,30 +66,24 @@ export function useSession({
       connection: getConnectionType(),
       location: location
         ? {
-            latitude: location.latitude,
-            longitude: location.longitude,
-            accuracy: location.accuracy,
-          }
+          latitude: location.latitude,
+          longitude: location.longitude,
+          accuracy: location.accuracy,
+        }
         : undefined,
     };
 
     // Initialize session (backend will check if it exists)
     const initSession = async () => {
       try {
-        const response = await fetch('/api/session/start', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            session_id: newSessionId,
-            user_id: userId,
-            experiment_id: experimentId,
-            environment,
-          }),
+        const data = await startSession({
+          session_id: newSessionId,
+          user_id: userId,
+          experiment_id: experimentId,
+          environment,
         });
 
-        const data = await response.json();
-
-        if (data.existing) {
+        if (data.status === 'exists') {
           console.log('✅ Session already exists:', newSessionId);
         } else {
           console.log('✅ New session created:', newSessionId);
@@ -101,19 +96,21 @@ export function useSession({
     initSession();
 
     // End session on unmount or page unload
-    const endSession = () => {
+    const endSessionHandler = () => {
       // Use sendBeacon for reliable cleanup on page unload
+      // Note: sendBeacon doesn't work well with apiClient, use direct fetch
+      const backendUrl = (process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000').replace(/\/$/, '');
       const data = JSON.stringify({ session_id: newSessionId });
       const blob = new Blob([data], { type: 'application/json' });
-      navigator.sendBeacon('/api/session/end', blob);
+      navigator.sendBeacon(`${backendUrl}/api/v1/session/end`, blob);
     };
 
-    window.addEventListener('beforeunload', endSession);
+    window.addEventListener('beforeunload', endSessionHandler);
 
     return () => {
       sessionStartedRef.current = false;
-      window.removeEventListener('beforeunload', endSession);
-      endSession();
+      window.removeEventListener('beforeunload', endSessionHandler);
+      endSessionHandler();
     };
   }, [
     userId,

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import MemoryPanel from "./MemoryPanel";
 import { useRouter } from "next/navigation";
 
 
@@ -37,7 +36,6 @@ export default function Sidebar({
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
-  const [showMemories, setShowMemories] = useState(false);
   const router = useRouter();
 
   // Load chat sessions from localStorage
@@ -180,8 +178,8 @@ export default function Sidebar({
                 <div
                   key={session.id}
                   className={`group relative rounded-lg transition-colors ${currentSessionId === session.id
-                      ? "bg-slate-200"
-                      : "hover:bg-slate-100"
+                    ? "bg-slate-200"
+                    : "hover:bg-slate-100"
                     }`}
                 >
                   <button

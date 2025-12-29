@@ -4,6 +4,7 @@ import React, { useState, CSSProperties, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import ProductCard from "./ProductCard";
+import { logEvent } from "../lib/apiClient";
 
 interface Citation {
   title: string;
@@ -85,27 +86,12 @@ export default function MessageHistory({
   };
 
   const handleLinkClick = async (href: string, query: string) => {
-    try {
-      const backendUrl =
-        process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
-
-      await fetch(`${backendUrl}/log_event`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user_id: userId,
-          session_id: sessionId,
-          event_type: "click",
-          query,
-          target_url: href,
-          page_url: window.location.href,
-        }),
-      });
-
-      setClickedLinks(new Set([...clickedLinks, href]));
-    } catch (err) {
-      console.error("Error logging click event:", err);
-    }
+    logEvent(sessionId, 'click', {
+      target_url: href,
+      page_url: window.location.href,
+      text: query,
+    });
+    setClickedLinks(new Set([...clickedLinks, href]));
   };
 
   // Use react-markdown to render assistant replies
