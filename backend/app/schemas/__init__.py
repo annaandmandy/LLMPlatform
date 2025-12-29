@@ -10,6 +10,7 @@ from app.schemas.query import (
     QueryResponse,
     Citation,
     ProductCard,
+    QueryDocument,  # NEW: For MongoDB storage with embeddings
 )
 from app.schemas.session import (
     Environment,
@@ -37,6 +38,7 @@ __all__ = [
     "QueryResponse",
     "Citation",
     "ProductCard",
+    "QueryDocument",
     
     # Session
     "Environment",

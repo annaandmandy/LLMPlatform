@@ -22,13 +22,9 @@ class MongoDB:
     
     # Collection references (initialized after connection)
     queries_collection = None
-    events_collection = None
     sessions_collection = None
     summaries_collection = None
-    vectors_collection = None
     products_collection = None
-    agent_logs_collection = None
-    memories_collection = None
     files_collection = None
 
 
@@ -89,13 +85,9 @@ def _initialize_collections():
         return
     
     mongodb.queries_collection = mongodb.db["queries"]
-    mongodb.events_collection = mongodb.db["events"]
     mongodb.sessions_collection = mongodb.db["sessions"]
     mongodb.summaries_collection = mongodb.db["summaries"]
-    mongodb.vectors_collection = mongodb.db["vectors"]
     mongodb.products_collection = mongodb.db["products"]
-    mongodb.agent_logs_collection = mongodb.db["agent_logs"]
-    mongodb.memories_collection = mongodb.db["memories"]
     mongodb.files_collection = mongodb.db["files"]
     
     logger.info("✅ Collections initialized")
@@ -107,7 +99,7 @@ async def _create_indexes():
         return
     
     try:
-        # Queries collection indexes
+        # Queries collection indexes (with embedding for vector search)
         await mongodb.queries_collection.create_index("session_id")
         await mongodb.queries_collection.create_index("user_id")
         await mongodb.queries_collection.create_index([("timestamp", -1)])
@@ -117,21 +109,17 @@ async def _create_indexes():
         await mongodb.sessions_collection.create_index("user_id")
         await mongodb.sessions_collection.create_index([("start_time", -1)])
         
-        # Events collection indexes
-        await mongodb.events_collection.create_index("session_id")
-        await mongodb.events_collection.create_index("user_id")
-        await mongodb.events_collection.create_index("event_type")
+        # Summaries collection indexes
+        await mongodb.summaries_collection.create_index("session_id")
+        await mongodb.summaries_collection.create_index("user_id")
+        await mongodb.summaries_collection.create_index([("timestamp", -1)])
         
-        # Memories collection indexes
-        await mongodb.memories_collection.create_index([("user_id", 1), ("key", 1)], unique=True)
+        # Products collection indexes
+        await mongodb.products_collection.create_index([("title", "text"), ("description", "text")])
         
         # Files collection indexes
         await mongodb.files_collection.create_index("user_id")
         await mongodb.files_collection.create_index([("upload_time", -1)])
-        
-        # Vector collection indexes (for RAG)
-        await mongodb.vectors_collection.create_index("file_id")
-        await mongodb.vectors_collection.create_index([("file_id", 1), ("chunk_index", 1)])
         
         logger.info("✅ Database indexes created")
         
@@ -225,26 +213,16 @@ def get_sessions_collection():
     return mongodb.sessions_collection
 
 
-def get_events_collection():
-    """Get events collection."""
-    return mongodb.events_collection
-
-
-def get_memories_collection():
-    """Get memories collection."""
-    return mongodb.memories_collection
-
-
-def get_files_collection():
-    """Get files collection."""
-    return mongodb.files_collection
-
-
-def get_vectors_collection():
-    """Get vectors collection."""
-    return mongodb.vectors_collection
+def get_summaries_collection():
+    """Get summaries collection."""
+    return mongodb.summaries_collection
 
 
 def get_products_collection():
     """Get products collection."""
     return mongodb.products_collection
+
+
+def get_files_collection():
+    """Get files collection."""
+    return mongodb.files_collection

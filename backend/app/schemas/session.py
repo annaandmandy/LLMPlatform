@@ -22,10 +22,15 @@ class Environment(AppBaseModel):
 
 
 class EventData(AppBaseModel):
-    """Event-specific data fields."""
+    """
+    Event-specific data fields.
+    
+    Note: This is for UX analytics, not full Q&A storage.
+    Full query/response data lives in the queries collection.
+    """
     
     # Generic fields
-    text: Optional[str] = None
+    text: Optional[str] = None  # Short preview text only
     target: Optional[str] = None
     target_url: Optional[str] = None
     x: Optional[float] = None
@@ -36,16 +41,15 @@ class EventData(AppBaseModel):
     speed: Optional[float] = None
     direction: Optional[str] = None  # "up" or "down"
     
-    # Model response fields
+    # Query/Response tracking (lightweight - reference only!)
+    query_id: Optional[str] = None  # Reference to queries collection
     model: Optional[str] = None
     provider: Optional[str] = None
     latency_ms: Optional[float] = None
-    tokens: Optional[Dict[str, int]] = None  # {"prompt": 10, "completion": 50, "total": 60}
-    temperature: Optional[float] = None
-    top_p: Optional[float] = None
-    response_length: Optional[int] = None
-    response_id: Optional[str] = None
-    citations: Optional[List[Dict[str, Any]]] = None
+    success: Optional[bool] = None  # Did the query succeed?
+    
+    # Tokens (summary only, full data in queries)
+    tokens: Optional[Dict[str, int]] = None  # {"total": 60}
     
     # Feedback/error fields
     feedback: Optional[str] = None  # "up", "down", "neutral"
@@ -62,13 +66,6 @@ class EventData(AppBaseModel):
     topic: Optional[str] = None
     sentiment: Optional[str] = None
     page_url: Optional[str] = None
-    
-    # Attachments (for prompts)
-    attachments: Optional[List[Dict[str, Any]]] = None
-    mode: Optional[str] = None  # "chat" or "shopping"
-    
-    # Products (for responses)
-    products: Optional[List[Dict[str, Any]]] = None
 
 
 class Event(AppBaseModel):
