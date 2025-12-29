@@ -1,8 +1,8 @@
 """
-API v1 package.
+API v1 package - RESTful endpoints.
 """
 
+from app.api.v1 import health, events, sessions, products, files, query
 from app.api.v1.router import api_router
-from app.api.v1 import health, events, sessions, products, files
 
-__all__ = ["api_router", "health", "events", "sessions", "products", "files"]
+__all__ = ["health", "query", "events", "sessions", "products", "files", "api_router"]
