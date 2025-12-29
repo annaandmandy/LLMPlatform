@@ -22,6 +22,13 @@ from app.services.file_service import FileService, file_service
 class TestFileService:
     """Test suite for FileService."""
 
+    @pytest.fixture(autouse=True)
+    def reset_service_cache(self):
+        """Reset the global service's repository cache before each test."""
+        file_service._repo = None
+        yield
+        file_service._repo = None
+
     async def test_upload_file_success(
         self,
         mock_db
@@ -84,11 +91,23 @@ class TestFileService:
     async def test_upload_file_without_database(self):
         """Test file upload fails without database."""
         # Arrange
+        file_content = b"test content"
         mock_file = MagicMock(spec=UploadFile)
         mock_file.filename = "test.txt"
+        mock_file.content_type = "text/plain"
+        mock_file.read = AsyncMock(return_value=file_content)
 
-        with patch("app.services.file_service.get_db") as mock_get_db:
+        with patch("app.services.file_service.get_db") as mock_get_db, \
+             patch("app.services.file_service.aiofiles.open") as mock_aio_open:
             mock_get_db.return_value = None
+
+            # Mock file write operations
+            mock_file_handle = AsyncMock()
+            mock_file_handle.write = AsyncMock()
+            mock_async_ctx = AsyncMock()
+            mock_async_ctx.__aenter__.return_value = mock_file_handle
+            mock_async_ctx.__aexit__.return_value = None
+            mock_aio_open.return_value = mock_async_ctx
 
             # Act & Assert
             service = FileService()
@@ -173,8 +192,10 @@ class TestFileService:
             assert len(result) == 2
             assert all(f["user_id"] == user_id for f in result)
 
-            # Verify query
-            mock_db.files.find.assert_called_once_with({"user_id": user_id})
+            # Verify query (repository may add projection parameter)
+            mock_db.files.find.assert_called_once()
+            call_args = mock_db.files.find.call_args[0]
+            assert call_args[0]["user_id"] == user_id
 
     async def test_list_files_with_session_filter(
         self,

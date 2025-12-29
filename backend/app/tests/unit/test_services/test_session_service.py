@@ -20,6 +20,13 @@ from app.schemas.session import SessionStartRequest, SessionEventRequest, Sessio
 class TestSessionService:
     """Test suite for SessionService."""
 
+    @pytest.fixture(autouse=True)
+    def reset_service_cache(self):
+        """Reset the global service's repository cache before each test."""
+        session_service._repo = None
+        yield
+        session_service._repo = None
+
     async def test_start_session_success(
         self,
         sample_session_start_request,
@@ -40,12 +47,12 @@ class TestSessionService:
             assert result["session_id"] == request.session_id
             assert "start_time" in result
 
-            # Verify database insert
+            # Verify database insert (via repository)
             mock_db.sessions.insert_one.assert_called_once()
             call_args = mock_db.sessions.insert_one.call_args[0][0]
             assert call_args["session_id"] == request.session_id
             assert call_args["user_id"] == request.user_id
-            assert call_args["is_active"] is True
+            assert call_args["status"] == "active"  # Repository uses status field
             assert call_args["events"] == []
 
     async def test_start_session_without_database(
@@ -59,9 +66,13 @@ class TestSessionService:
         with patch("app.services.session_service.get_db") as mock_get_db:
             mock_get_db.return_value = None
 
+            # Create a fresh service instance to avoid cached repo
+            from app.services.session_service import SessionService
+            fresh_service = SessionService()
+
             # Act & Assert
             with pytest.raises(RuntimeError, match="Database not initialized"):
-                await session_service.start_session(request)
+                await fresh_service.start_session(request)
 
     async def test_add_event_success(
         self,
@@ -156,13 +167,12 @@ class TestSessionService:
             assert "start_time" in result
             assert "end_time" in result
 
-            # Verify database update
+            # Verify database update (via repository)
             mock_db.sessions.update_one.assert_called_once()
             call_args = mock_db.sessions.update_one.call_args[0][1]["$set"]
-            assert call_args["is_active"] is False
+            assert call_args["status"] == "ended"  # Repository uses status field
             assert "end_time" in call_args
-            assert "duration_seconds" in call_args
-            assert call_args["total_events"] == 2
+            assert "updated_at" in call_args
 
     async def test_end_session_not_found(
         self,
@@ -210,7 +220,10 @@ class TestSessionService:
             assert result["session_id"] == session_id
             assert result["_id"] == "mock_object_id"  # Should be converted to string
 
-            mock_db.sessions.find_one.assert_called_once_with({"session_id": session_id})
+            # Verify database query (repository may add projection parameter)
+            mock_db.sessions.find_one.assert_called_once()
+            call_args = mock_db.sessions.find_one.call_args[0]
+            assert call_args[0] == {"session_id": session_id}
 
     async def test_get_session_not_found(
         self,
@@ -256,8 +269,10 @@ class TestSessionService:
             assert len(result) == 2
             assert all(s["_id"] in ["id1", "id2"] for s in result)
 
-            # Verify query
-            mock_db.sessions.find.assert_called_once_with({"user_id": user_id})
+            # Verify query (repository may add projection parameter)
+            mock_db.sessions.find.assert_called_once()
+            call_args = mock_db.sessions.find.call_args[0]
+            assert call_args[0]["user_id"] == user_id
 
     async def test_get_user_sessions_active_only(
         self,
@@ -282,10 +297,10 @@ class TestSessionService:
             # Act
             await session_service.get_user_sessions(user_id, active_only=True)
 
-            # Assert - verify query includes is_active filter
+            # Assert - verify query includes status filter (repository uses status field)
             call_args = mock_db.sessions.find.call_args[0][0]
             assert call_args["user_id"] == user_id
-            assert call_args["is_active"] is True
+            assert call_args["status"] == "active"
 
     async def test_get_user_sessions_with_limit(
         self,

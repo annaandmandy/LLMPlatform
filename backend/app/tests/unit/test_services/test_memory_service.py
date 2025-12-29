@@ -19,6 +19,13 @@ from app.services.memory_service import MemoryService, memory_service
 class TestMemoryService:
     """Test suite for MemoryService."""
 
+    @pytest.fixture(autouse=True)
+    def reset_service_cache(self):
+        """Reset the global service's repository cache before each test."""
+        memory_service._repo = None
+        yield
+        memory_service._repo = None
+
     async def test_get_memory_context_with_all_sources(
         self,
         mock_db,
@@ -287,5 +294,7 @@ class TestMemoryService:
                 filter_dict={"user_id": user_id}
             )
 
-            # Check queries collection filter
-            mock_db.queries.find.assert_called_once_with({"user_id": user_id})
+            # Check queries collection filter (repository may add projection parameter)
+            mock_db.queries.find.assert_called_once()
+            call_args = mock_db.queries.find.call_args[0]
+            assert call_args[0]["user_id"] == user_id

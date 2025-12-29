@@ -12,6 +12,7 @@ from app.providers.factory import ProviderFactory
 from app.services.memory_service import memory_service
 from app.services.embedding_service import embedding_service
 from app.db.mongodb import get_db
+from app.db.repositories.query_repo import QueryRepository
 from app.schemas.query import QueryRequest, QueryResponse, QueryDocument
 from app.agents import get_coordinator
 
@@ -21,14 +22,28 @@ logger = logging.getLogger(__name__)
 class QueryService:
     """
     Service for processing user queries with LLMs.
-    
+
     Handles the full query pipeline:
     1. Get memory context
     2. Generate embedding
     3. Process with LLM/agents
     4. Log to database
     """
-    
+
+    def __init__(self):
+        """Initialize with repository."""
+        self._repo = None
+
+    @property
+    def repo(self) -> QueryRepository:
+        """Get repository instance (lazy initialization)."""
+        if self._repo is None:
+            db = get_db()
+            if db is None:
+                raise RuntimeError("Database not initialized")
+            self._repo = QueryRepository(db)
+        return self._repo
+
     async def process_query(
         self,
         request: QueryRequest
@@ -170,43 +185,38 @@ class QueryService:
         latency_ms: float
     ):
         """Log query to database."""
-        db = get_db()
-        if db is None:
-            logger.warning("Database not available, skipping query log")
-            return
-        
-        queries_collection = db["queries"]
-        
-        # Build query document
-        query_doc = QueryDocument(
-            user_id=request.user_id,
-            session_id=request.session_id,
-            query=request.query,
-            response=response,
-            model_provider=request.model_provider,
-            model_name=request.model_name,
-            embedding=embedding,
-            intent=result.get("intent"),
-            mode=request.mode,
-            attachments=request.attachments,
-            user_location=request.location.model_dump() if request.location else None,
-            citations=result.get("citations"),
-            product_cards=result.get("product_cards"),
-            agents_used=result.get("agents_used"),
-            memory_context=memory_context,
-            shopping_status=result.get("shopping_status"),
-            shopping_options=result.get("options"),
-            timestamp=datetime.utcnow().isoformat(),
-            created_at=datetime.utcnow().isoformat(),
-            latency_ms=latency_ms,
-            tokens=result.get("tokens"),
-            success=True
-        )
-        
-        # Insert into database
         try:
-            await queries_collection.insert_one(query_doc.model_dump(exclude_none=True))
+            # Build metadata from request and result
+            metadata = {
+                "model_provider": request.model_provider,
+                "model_name": request.model_name,
+                "intent": result.get("intent"),
+                "mode": request.mode,
+                "attachments": request.attachments,
+                "user_location": request.location.model_dump() if request.location else None,
+                "citations": result.get("citations"),
+                "product_cards": result.get("product_cards"),
+                "agents_used": result.get("agents_used"),
+                "memory_context": memory_context,
+                "shopping_status": result.get("shopping_status"),
+                "shopping_options": result.get("options"),
+                "latency_ms": latency_ms,
+                "tokens": result.get("tokens"),
+                "success": True
+            }
+
+            # Use repository to create query log
+            await self.repo.create_query_log(
+                user_id=request.user_id,
+                session_id=request.session_id,
+                query=request.query,
+                response=response,
+                embedding=embedding,
+                metadata=metadata
+            )
+
             logger.info(f"Query logged: {request.user_id}/{request.session_id}")
+
         except Exception as e:
             logger.error(f"Failed to log query: {e}")
 

@@ -8,6 +8,7 @@ from typing import List, Dict, Any, Optional
 import logging
 
 from app.db.mongodb import get_db
+from app.db.repositories.memory_repo import MemoryRepository
 from app.utils.vector_search import VectorSearchService
 
 logger = logging.getLogger(__name__)
@@ -16,14 +17,25 @@ logger = logging.getLogger(__name__)
 class MemoryService:
     """
     Service for building memory context dynamically.
-    
+
     Memory = Vector Search + Recent Messages + Summaries
     (No memories collection - it's all computed!)
     """
-    
+
     def __init__(self):
         """Initialize memory service."""
         self.vector_search = VectorSearchService(collection_name="queries")
+        self._repo = None
+
+    @property
+    def repo(self) -> MemoryRepository:
+        """Get repository instance (lazy initialization)."""
+        if self._repo is None:
+            db = get_db()
+            if db is None:
+                raise RuntimeError("Database not initialized")
+            self._repo = MemoryRepository(db)
+        return self._repo
     
     async def get_memory_context(
         self,
@@ -71,12 +83,12 @@ class MemoryService:
         
         # 2. Recent messages from this user (conversation continuity)
         try:
-            queries_collection = db["queries"]
-            recent_cursor = queries_collection.find(
-                {"user_id": user_id}
-            ).sort("timestamp", -1).limit(limit)
-            
-            recent_docs = await recent_cursor.to_list(length=limit)
+            # Use repository to get recent memories
+            recent_docs = await self.repo.get_recent_memories(
+                user_id=user_id,
+                limit=limit
+            )
+
             recent_messages = [
                 {
                     "query": doc.get("query"),
