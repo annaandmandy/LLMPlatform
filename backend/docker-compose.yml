@@ -11,21 +11,25 @@ services:
       - "8000:8000"
     environment:
       - MONGODB_URI=${MONGODB_URI}
-      - MONGO_DB=${MONGO_DB:-llm_experiment}
-      - LITELLM_MODEL=${LITELLM_MODEL:-gpt-4o-mini}
+      - MONGO_DB=${MONGO_DB:-LLMPlatform}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
     env_file:
       - .env
+    volumes:
+      - ./uploads:/app/uploads # Persist uploaded files
+      - ./app/logs:/app/app/logs # Persist logs
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/status')"]
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')" ]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 5s
     networks:
       - llm-network
-
   # MongoDB Local (Optional - for local development without Atlas)
   # mongodb:
   #   image: mongo:7.0

@@ -4,6 +4,10 @@ Core configuration management using Pydantic Settings.
 This module centralizes all environment variables and application settings.
 """
 
+# Load .env file first so os.getenv() works everywhere
+from dotenv import load_dotenv
+load_dotenv()
+
 from pydantic_settings import BaseSettings
 from pydantic import field_validator
 from typing import Optional
@@ -104,11 +108,13 @@ class Settings(BaseSettings):
     DEFAULT_TEMPERATURE: float = 0.7
     DEFAULT_MAX_TOKENS: int = 1024
     
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = True
-        extra = "ignore"  # Ignore extra fields in .env
+    # Pydantic v2 configuration
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "case_sensitive": True,
+        "extra": "ignore",  # Ignore extra fields in .env
+    }
 
 
 # Singleton instance
