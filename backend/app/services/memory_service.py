@@ -8,7 +8,8 @@ from typing import List, Dict, Any, Optional
 import logging
 
 from app.db.mongodb import get_db
-from app.db.repositories.memory_repo import MemoryRepository
+from app.db.repositories.query_repo import QueryRepository
+from app.db.repositories.summary_repo import SummaryRepository
 from app.utils.vector_search import VectorSearchService
 
 logger = logging.getLogger(__name__)
@@ -26,16 +27,27 @@ class MemoryService:
         """Initialize memory service."""
         self.vector_search = VectorSearchService(collection_name="queries")
         self._repo = None
+        self._summary_repo = None
 
     @property
-    def repo(self) -> MemoryRepository:
-        """Get repository instance (lazy initialization)."""
+    def repo(self) -> QueryRepository:
+        """Get query repository instance (lazy initialization)."""
         if self._repo is None:
             db = get_db()
             if db is None:
                 raise RuntimeError("Database not initialized")
-            self._repo = MemoryRepository(db)
+            self._repo = QueryRepository(db)
         return self._repo
+
+    @property
+    def summary_repo(self) -> SummaryRepository:
+        """Get summary repository instance (lazy initialization)."""
+        if self._summary_repo is None:
+            db = get_db()
+            if db is None:
+                raise RuntimeError("Database not initialized")
+            self._summary_repo = SummaryRepository(db)
+        return self._summary_repo
     
     async def get_memory_context(
         self,
@@ -83,8 +95,8 @@ class MemoryService:
         
         # 2. Recent messages from this user (conversation continuity)
         try:
-            # Use repository to get recent memories
-            recent_docs = await self.repo.get_recent_memories(
+            # Use repository to get recent queries
+            recent_docs = await self.repo.get_user_query_history(
                 user_id=user_id,
                 limit=limit
             )
@@ -106,21 +118,10 @@ class MemoryService:
         
         # 3. Session summaries (high-level context)
         try:
-            summaries_collection = db["summaries"]
-            summaries_cursor = summaries_collection.find(
-                {"user_id": user_id}
-            ).sort("timestamp", -1).limit(3)  # Last 3 summaries
-            
-            summary_docs = await summaries_cursor.to_list(length=3)
-            summaries = [
-                {
-                    "summary": doc.get("summary_text"),
-                    "session_id": doc.get("session_id"),
-                    "timestamp": doc.get("timestamp"),
-                    "topics": doc.get("topics", [])
-                }
-                for doc in summary_docs
-            ]
+            summaries = await self.summary_repo.get_summaries_by_user_for_memory(
+                user_id=user_id,
+                limit=3
+            )
             memory_context["summaries"] = summaries
             logger.info(f"Found {len(summaries)} summaries")
         except Exception as e:

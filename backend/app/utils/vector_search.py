@@ -129,10 +129,10 @@ class VectorSearchService:
             List of similar documents
             
         Example:
-            >>> from app.utils.embeddings import get_embedding
+            >>> from app.services.embedding_service import embedding_service
             >>> results = await service.search_by_text(
             ...     "How do I reset my password?",
-            ...     embedding_function=get_embedding,
+            ...     embedding_function=embedding_service.generate_embedding,
             ...     limit=3
             ... )
         """

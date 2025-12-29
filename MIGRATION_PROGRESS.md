@@ -14,7 +14,7 @@ Phase 3:  ████████████████████ 100% ✅ 
 Phase 4:  ████████████████████ 100% ✅ API Routes (6/6 files)
 Phase 5:  ████████████████████ 100% ✅ Services (6/6 files)
 Phase 6:  ████████████████████ 100% ✅ Repositories (5 repos)
-Phase 7:  ░░░░░░░░░░░░░░░░░░░░   0% ⏳ Utilities (optional)
+Phase 7:  ████████████████████ 100% ✅ Utilities (cleaned up)
 Phase 8:  ████████████████████ 100% ✅ Main App
 Phase 9:  ████░░░░░░░░░░░░░░░░  20% 🔄 Agent Updates
 Phase 10: ████████████████████ 100% ✅ Testing (75/75 tests)
@@ -142,8 +142,8 @@ Clean data access layer for team collaboration:
 - ✅ `BaseRepository` - Generic CRUD operations with logging
 - ✅ `QueryRepository` - Query logging, history, deletion
 - ✅ `SessionRepository` - Session lifecycle, events, retrieval
-- ✅ `MemoryRepository` - Memory storage and cleanup
 - ✅ `ProductRepository` - Product search and management
+- ✅ `SummaryRepository` - Session summary storage and retrieval
 
 **Benefits Delivered**:
 - ✅ Consistent data access patterns across codebase
@@ -157,14 +157,22 @@ Clean data access layer for team collaboration:
 
 ---
 
-### **Phase 7: Utilities** (Optional)
-Move remaining utility functions to organized files:
-- `app/utils/helpers.py` - General helpers
-- `app/utils/validators.py` - Validation functions
-- `app/utils/formatters.py` - Data formatters
+### **Phase 7: Utilities** ✅ (Complete!)
+Cleaned up utilities by removing duplicated code:
 
-**Effort**: ~1 hour  
-**Priority**: LOW
+**Actions Taken**:
+- ✅ Deleted `embeddings.py` (duplicated embedding_service.py)
+- ✅ Deleted empty files: `helpers.py`, `validators.py`, `formatters.py`
+- ✅ Updated `memory_agent.py` to use embedding_service
+- ✅ Implemented cosine similarity inline in memory_agent
+- ✅ Updated `vector_search.py` docstrings
+- ✅ Cleaned up `utils/__init__.py`
+
+**Remaining Utilities** (2):
+- ✅ `intent_classifier.py` - Intent classification (used by agents)
+- ✅ `vector_search.py` - MongoDB Atlas vector search (used by memory_service)
+
+**Status**: COMPLETE - All tests passing (75/75) ✅
 
 ---
 

@@ -108,32 +108,33 @@ sessions = await session_repo.get_user_sessions(
 )
 ```
 
-### MemoryRepository
-Manages conversation memory:
+### SummaryRepository
+Manages session summaries:
 
 ```python
-from app.db.repositories import MemoryRepository
+from app.db.repositories import SummaryRepository
 
-memory_repo = MemoryRepository(db)
+summary_repo = SummaryRepository(db)
 
-# Store memory
-await memory_repo.store_memory(
-    user_id="user_123",
-    query="What's my name?",
-    response="Your name is Anna.",
-    embedding=[0.1, 0.2, ...]
+# Create or update summary
+await summary_repo.create_or_update_summary(
+    session_id="session_123",
+    summary_text="User asked about Python basics...",
+    message_count=10,
+    model_used="gpt-4o-mini",
+    user_id="user_456"
 )
 
-# Get recent memories
-memories = await memory_repo.get_recent_memories(
-    user_id="user_123",
-    limit=10
+# Get summaries by session
+summaries = await summary_repo.get_summaries_by_session(
+    session_id="session_123",
+    limit=5
 )
 
-# Clean up old memories
-deleted = await memory_repo.delete_old_memories(
-    user_id="user_123",
-    days=30
+# Get summaries by user
+user_summaries = await summary_repo.get_summaries_by_user(
+    user_id="user_456",
+    limit=3
 )
 ```
 
@@ -225,4 +226,4 @@ service.query_repo = mock_repo  # Inject mock
 - Add type hints for return values (Pydantic models)
 - Implement repository caching layer
 - Add support for transactions
-- Implement vector similarity search in MemoryRepository
+- Implement advanced vector similarity search features

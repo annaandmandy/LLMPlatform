@@ -11,8 +11,10 @@ from typing import Dict, Any, List, Optional, Tuple
 import logging
 from datetime import datetime
 import asyncio
+import numpy as np
 from .base_agent import BaseAgent
-from app.utils.embeddings import get_embedding, find_most_similar
+from app.services.embedding_service import embedding_service
+from app.db.repositories.summary_repo import SummaryRepository
 from openai import OpenAI
 import os
 
@@ -42,13 +44,13 @@ class MemoryAgent(BaseAgent):
         if db is not None:
             self.sessions = db.sessions
             self.vectors = db.vectors
-            self.summaries = db.summaries
             self.memories = db["memories"]
+            self.summary_repo = SummaryRepository(db)
         else:
             self.sessions = None
             self.vectors = None
-            self.summaries = None
             self.memories = None
+            self.summary_repo = None
 
     async def execute(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -187,7 +189,7 @@ class MemoryAgent(BaseAgent):
             return {"context": [], "recent_messages": [], "summaries": []}
 
         try:
-            query_embedding = get_embedding(query)
+            query_embedding = await embedding_service.generate_embedding(query)
             context, vectors = await self._semantic_search(
                 query_embedding=query_embedding,
                 session_id=session_id,
@@ -236,7 +238,7 @@ class MemoryAgent(BaseAgent):
         """
         try:
             # Generate embedding
-            embedding = get_embedding(content)
+            embedding = await embedding_service.generate_embedding(content)
 
             # Store in vectors collection
             vector_doc = {
@@ -264,41 +266,27 @@ class MemoryAgent(BaseAgent):
         user_id: Optional[str] = None,
     ):
         """
-        Store session summary in summaries collection.
+        Store session summary using repository.
 
         Args:
             session_id: Session identifier
             summary_text: Generated summary
             message_count: Number of messages summarized
             model_used: Model or strategy used to generate summary
+            user_id: Optional user identifier
         """
         try:
-            # Check if summary document exists
-            summary_doc = await self.summaries.find_one({"session_id": session_id})
+            if self.summary_repo is None:
+                logger.warning("Summary repository not initialized")
+                return
 
-            summary_entry = {
-                "t": datetime.now(),
-                "text": summary_text,
-                "message_count": message_count,
-                "model": model_used,
-            }
-
-            if summary_doc:
-                # Append to existing summaries
-                await self.summaries.update_one(
-                    {"session_id": session_id},
-                    {"$push": {"summaries": summary_entry}}
-                )
-            else:
-                # Create new summary document
-                await self.summaries.insert_one(
-                    {
-                        "session_id": session_id,
-                        "user_id": user_id,
-                        "summaries": [summary_entry],
-                        "created_at": datetime.now()
-                    }
-                )
+            await self.summary_repo.create_or_update_summary(
+                session_id=session_id,
+                summary_text=summary_text,
+                message_count=message_count,
+                model_used=model_used,
+                user_id=user_id
+            )
 
             logger.info(f"Stored summary for session {session_id}")
 
@@ -447,8 +435,26 @@ class MemoryAgent(BaseAgent):
         if len(vectors) == 0:
             return [], []
 
-        candidate_embeddings = [v["embedding"] for v in vectors]
-        similar_indices = find_most_similar(query_embedding, candidate_embeddings, top_k=top_k)
+        # Compute cosine similarity for each candidate
+        similarities = []
+        query_vec = np.array(query_embedding)
+        query_norm = np.linalg.norm(query_vec)
+
+        for idx, vector in enumerate(vectors):
+            candidate_vec = np.array(vector["embedding"])
+            candidate_norm = np.linalg.norm(candidate_vec)
+
+            if query_norm == 0 or candidate_norm == 0:
+                similarity = 0.0
+            else:
+                dot_product = np.dot(query_vec, candidate_vec)
+                similarity = float(dot_product / (query_norm * candidate_norm))
+
+            similarities.append((idx, similarity))
+
+        # Sort by similarity (descending) and take top_k
+        similarities.sort(key=lambda x: x[1], reverse=True)
+        similar_indices = similarities[:top_k]
 
         context = []
         for idx, similarity in similar_indices:
@@ -494,45 +500,15 @@ class MemoryAgent(BaseAgent):
 
     async def _get_summaries(self, user_id: Optional[str], session_id: Optional[str]) -> List[Dict[str, Any]]:
         """
-        Fetch recent summaries for the session and (optionally) across the user.
+        Fetch recent summaries for the session and (optionally) across the user using repository.
         """
-        if self.summaries is None:
+        if self.summary_repo is None:
             return []
 
-        filters: List[Dict[str, Any]] = []
-        if session_id:
-            filters.append({"session_id": session_id})
-        if user_id:
-            filters.append({"user_id": user_id})
-
-        summaries: List[Dict[str, Any]] = []
-        for f in filters:
-            cursor = self.summaries.find(f).sort("created_at", -1).limit(2)
-            docs = await cursor.to_list(length=2)
-            for doc in docs:
-                # Only take the newest summary entry per doc to save tokens
-                latest_entry = doc.get("summaries", [])[-1:] or []
-                for entry in latest_entry:
-                    summaries.append(
-                        {
-                            "session_id": doc.get("session_id"),
-                            "summary": entry.get("text"),
-                            "message_count": entry.get("message_count"),
-                            "model": entry.get("model"),
-                            "timestamp": entry.get("t"),
-                        }
-                    )
-        # deduplicate by summary text + session_id
-        seen = set()
-        unique = []
-        for s in summaries:
-            key = (s.get("session_id"), s.get("summary"))
-            if key in seen:
-                continue
-            seen.add(key)
-            unique.append(s)
-        # Keep only the newest few summaries for prompt usage
-        return unique[:3]
+        return await self.summary_repo.get_summaries_for_context(
+            user_id=user_id,
+            session_id=session_id
+        )
 
     async def _get_user_memories(self, user_id: Optional[str], limit: int = 8) -> List[Dict[str, Any]]:
         """
