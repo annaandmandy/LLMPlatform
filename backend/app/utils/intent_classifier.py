@@ -35,8 +35,10 @@ class IntentClassifier:
 
     def __init__(self, keyword_file: str = "intent_keywords.json"):
         """Initialize the intent classifier and compile patterns."""
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        self.keyword_file = os.path.join(base_dir, keyword_file)
+        # Load from config folder
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # Go up to app/
+        config_dir = os.path.join(base_dir, "config")
+        self.keyword_file = os.path.join(config_dir, keyword_file)
 
         if not os.path.exists(self.keyword_file):
             raise FileNotFoundError(f"Keyword file not found: {self.keyword_file}")

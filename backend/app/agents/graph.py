@@ -87,7 +87,7 @@ async def vision_node(state: AgentState):
 
 async def intent_node(state: AgentState):
     # We import here to avoid potential circular initializations if any
-    from utils.intent_classifier import detect_intent
+    from app.utils.intent_classifier import detect_intent
     
     # Check if we forced intent (e.g. from shopping completion previously) 
     # Actually, in this graph, if shopping completes, we might loop back or handle it.

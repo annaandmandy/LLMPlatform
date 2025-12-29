@@ -12,7 +12,7 @@ import logging
 from datetime import datetime
 import asyncio
 from .base_agent import BaseAgent
-from utils.embeddings import get_embedding, find_most_similar
+from app.utils.embeddings import get_embedding, find_most_similar
 from openai import OpenAI
 import os
 
