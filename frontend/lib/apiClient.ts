@@ -276,6 +276,7 @@ export async function listFiles(userId: string): Promise<any[]> {
 
 /**
  * Quick helper to log events without try/catch boilerplate
+ * Silently ignores 404s (session not created yet)
  */
 export function logEvent(
     sessionId: string,
@@ -291,6 +292,10 @@ export function logEvent(
             data,
         },
     }).catch((err) => {
-        console.warn('Event logging failed:', err);
+        // Silently ignore 404s (session not created yet during initialization)
+        // This is a race condition that resolves itself within ~500ms
+        if (!err || !err.toString().includes('404')) {
+            console.warn('Event logging failed:', err);
+        }
     });
 }

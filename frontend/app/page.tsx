@@ -187,12 +187,29 @@ export default function Home() {
 
   const persistExperiment = async (value: string) => {
     if (!sessionId) return;
-    try {
-      await updateSessionExperiment(sessionId, { experiment_id: value });
-      setExperimentId(value);
-      setShowExperimentModal(false);
-    } catch (err) {
-      console.warn("Failed to save experiment id", err);
+
+    // Retry logic to handle race condition where session may not be created yet
+    let retries = 3;
+    while (retries > 0) {
+      try {
+        await updateSessionExperiment(sessionId, { experiment_id: value });
+        setExperimentId(value);
+        setShowExperimentModal(false);
+        return; // Success
+      } catch (err: any) {
+        if (err.message?.includes('404') && retries > 1) {
+          // Session not created yet in backend, wait and retry
+          await new Promise(resolve => setTimeout(resolve, 300));
+          retries--;
+        } else {
+          // Other error or out of retries
+          console.warn("Failed to save experiment id", err);
+          // Still close modal and set ID locally
+          setExperimentId(value);
+          setShowExperimentModal(false);
+          return;
+        }
+      }
     }
   };
 
