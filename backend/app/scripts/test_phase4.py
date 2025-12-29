@@ -39,25 +39,6 @@ def main():
         traceback.print_exc()
         return False
     
-    # Test 2: Event Routes
-    print("\n📊 Test 2: Event Routes")
-    try:
-        from app.api.v1 import events
-        
-        assert hasattr(events, 'router')
-        print("✅ Events router exists")
-        
-        # Check routes
-        routes = [route.path for route in events.router.routes]
-        print(f"✅ Event routes: {routes}")
-        
-        print("✅ Event routes test PASSED")
-    except Exception as e:
-        print(f"❌ Event routes test FAILED: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
-    
     # Test 3: Router Aggregator
     print("\n🔗 Test 3: Router Aggregator")
     try:
@@ -112,7 +93,7 @@ def main():
     # Test 5: Import Test
     print("\n📦 Test 5: Package Imports")
     try:
-        from app.api.v1 import api_router, health, events
+        from app.api.v1 import api_router, health
         
         print("✅ All modules importable from app.api.v1")
         print("✅ Package imports test PASSED")

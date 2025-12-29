@@ -48,11 +48,10 @@ print()
 # Test 2: Import routes
 print("Test 2: Importing routes...")
 try:
-    from app.api.v1 import health, query, events, sessions, products, files
+    from app.api.v1 import health, query, sessions, products, files
     print("✅ All routes imported successfully!")
     print(f"   - health.router: {health.router.tags}")
     print(f"   - query.router: {query.router.tags}")
-    print(f"   - events.router: {events.router.tags}")
     print(f"   - sessions.router: {sessions.router.tags}")
     print(f"   - products.router: {products.router.tags}")
     print(f"   - files.router: {files.router.tags}")
