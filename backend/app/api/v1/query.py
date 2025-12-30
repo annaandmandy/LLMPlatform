@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 from typing import AsyncGenerator
 import logging
 import json
+import asyncio
 
 from app.schemas.query import QueryRequest, QueryResponse
 from app.services.query_service import query_service
@@ -76,52 +77,40 @@ async def query_llm_stream(
             from app.services.embedding_service import embedding_service
             from datetime import datetime
             
-            # 1. Generate embedding
-            yield f"data: {json.dumps({'type': 'status', 'message': 'Generating embedding...'})}\n\n"
-            query_embedding = await embedding_service.generate_embedding(request.query)
+            # Use QueryService to process end-to-end (includes agents, memory, embeddings)
+            result = await query_service.process_query(request)
             
-            # 2. Get memory context
-            yield f"data: {json.dumps({'type': 'status', 'message': 'Retrieving memory...'})}\n\n"
-            memory_context = await memory_service.get_memory_context(
-                user_id=request.user_id,
-                query=request.query,
-                query_embedding=query_embedding,
-                limit=5
-            )
+            response_text = result.response
+            citations = result.citations
+            product_cards = result.product_cards
+            options = result.options
             
-            # 3. Stream from provider
-            yield f"data: {json.dumps({'type': 'status', 'message': 'Processing query...'})}\n\n"
+            # Simulate streaming by sending response in chunks
+            # This provides a better UX even without true streaming in providers
+            chunk_size = 50  # characters per chunk
+            for i in range(0, len(response_text), chunk_size):
+                chunk = response_text[i:i + chunk_size]
+                yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
+                # Small delay to simulate streaming (optional)
+                await asyncio.sleep(0.01)
             
-            # Get provider
-            provider = ProviderFactory.get_provider(request.model_provider)
+            # Send citations if any
+            if citations:
+                yield f"data: {json.dumps({'type': 'node', 'node_type': 'citations', 'citations': citations})}\n\n"
             
-            # Build system prompt with memory
-            memory_str = memory_service.format_memory_for_prompt(memory_context)
-            system_prompt = "You are a helpful AI assistant."
-            if memory_str:
-                system_prompt += f"\n\nContext from previous conversations:\n{memory_str}"
+            # Send product cards if any
+            if product_cards:
+                yield f"data: {json.dumps({'type': 'node', 'node_type': 'product_cards', 'product_cards': product_cards})}\n\n"
             
-            # Check if provider supports streaming
-            if hasattr(provider, 'stream_generate'):
-                # Stream from provider
-                async for chunk in provider.stream_generate(
-                    model=request.model_name or "gpt-4o-mini",
-                    query=request.query,
-                    system_prompt=system_prompt,
-                    attachments=request.attachments
-                ):
-                    yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
-            else:
-                # Fallback: Non-streaming provider
-                response_text, citations, raw_response, tokens = await provider.generate(
-                    model=request.model_name or "gpt-4o-mini",
-                    query=request.query,
-                    system_prompt=system_prompt,
-                    attachments=request.attachments
-                )
-                
-                # Send as single chunk
-                yield f"data: {json.dumps({'type': 'chunk', 'content': response_text})}\n\n"
+            # Send final data with metadata
+            final_data = {
+                'type': 'final',
+                'options': options,
+                'metadata': {
+                    'model': request.model_name
+                }
+            }
+            yield f"data: {json.dumps(final_data)}\n\n"
             
             # 4. Send completion event
             yield f"data: {json.dumps({'type': 'done', 'message': 'Query complete'})}\n\n"

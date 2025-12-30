@@ -135,7 +135,8 @@ class QueryService:
         }
         
         # Process through coordinator
-        result = await coordinator.process(agent_request)
+        # The correct method is execute() in CoordinatorAgent
+        result = await coordinator.execute(agent_request)
         
         return result
     

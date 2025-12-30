@@ -142,8 +142,8 @@ class WriterAgent(BaseAgent):
             if not llm_function:
                 raise ValueError(f"No LLM function configured for provider: {provider}")
 
-            # Call the LLM
-            response_text, citations, raw_response, tokens = llm_function(
+            # Call the LLM (ensure we await the async function)
+            response_text, citations, raw_response, tokens = await llm_function(
                 model, enriched_prompt, system_prompt=system_prompt
             )
 

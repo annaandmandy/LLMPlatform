@@ -253,13 +253,13 @@ export default function Home() {
 
       // Generate title from first user message
       const firstUserMessage = messages.find((m) => m.role === "user");
-      const title = firstUserMessage
+      const title = firstUserMessage && firstUserMessage.content
         ? firstUserMessage.content.slice(0, 50) + (firstUserMessage.content.length > 50 ? "..." : "")
         : "New Chat";
 
       // Get last message for preview
       const lastMsg = messages[messages.length - 1];
-      const lastMessage = lastMsg
+      const lastMessage = lastMsg && lastMsg.content
         ? lastMsg.content.slice(0, 60) + (lastMsg.content.length > 60 ? "..." : "")
         : undefined;
 

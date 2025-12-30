@@ -143,18 +143,21 @@ export function useChat({ userId, sessionId, location, isShoppingMode = false }:
             const thinkingStatus = isProductQuery
                 ? `Searching for products: ${query.slice(0, 80)}${query.length > 80 ? '...' : ''} `
                 : query.slice(0, 100) + (query.length > 100 ? '...' : '');
-            setThinkingText(thinkingStatus);
-
             // Add user message
-            addMessage(
-                'user',
-                query,
-                undefined,
-                undefined,
-                attachments.map((a) => ({ type: a.type, base64: a.dataUrl, name: a.name }))
-            );
+            addMessage('user', query, undefined, undefined, attachments.map(a => ({ type: a.type, name: a.name, base64: a.dataUrl })), undefined);
+            setThinkingText('Searching...');
 
-            // Set Clarity tags
+
+            // Add initial empty assistant message for streaming
+            setMessages((prev) => [
+                ...prev,
+                {
+                    role: 'assistant',
+                    content: '',
+                    timestamp: new Date()
+                },
+            ]);
+
             try {
                 Clarity.setTag('selected_model', currentModel.id);
                 Clarity.setTag('selected_model_name', currentModel.name);
@@ -182,8 +185,10 @@ export function useChat({ userId, sessionId, location, isShoppingMode = false }:
                 const reader = stream.getReader();
                 const decoder = new TextDecoder();
                 let buffer = '';
-                let assistantMessage = '';
-                let finalData: any = null;
+                let accumulatedContent = '';
+                let accumulatedCitations: Citation[] = [];
+                let accumulatedProductCards: ProductCardData[] = [];
+                let accumulatedOptions: string[] = [];
 
                 while (true) {
                     const { done, value } = await reader.read();
@@ -194,45 +199,80 @@ export function useChat({ userId, sessionId, location, isShoppingMode = false }:
                     buffer = lines.pop() || '';
 
                     for (const line of lines) {
-                        if (line.startsWith('data: ')) {
-                            const data = line.slice(6);
-                            if (data === '[DONE]') {
-                                break;
+                        const trimmedLine = line.trim();
+                        if (!trimmedLine || !trimmedLine.startsWith('data: ')) continue;
+
+                        const data = trimmedLine.slice(6);
+                        if (data === '[DONE]') break;
+
+                        try {
+                            const parsed = JSON.parse(data);
+
+                            if (parsed.type === 'status' || parsed.type === 'message') {
+                                setThinkingText(parsed.message || parsed.content || 'Thinking...');
+                            } else if (parsed.type === 'chunk') {
+                                setThinkingText(''); // Clear thinking text once we start getting chunks
+                                accumulatedContent += (parsed.content || '');
+
+                                // Update the last message (the assistant's streaming message)
+                                setMessages((prev) => {
+                                    const newMessages = [...prev];
+                                    if (newMessages.length > 0) {
+                                        const last = newMessages[newMessages.length - 1];
+                                        if (last.role === 'assistant') {
+                                            newMessages[newMessages.length - 1] = {
+                                                ...last,
+                                                content: accumulatedContent
+                                            };
+                                        }
+                                    }
+                                    return newMessages;
+                                });
+                            } else if (parsed.type === 'node') {
+                                if (parsed.node_type === 'citations' && parsed.citations) {
+                                    accumulatedCitations = [...accumulatedCitations, ...parsed.citations];
+                                }
+                                if (parsed.node_type === 'product_cards' && parsed.product_cards) {
+                                    accumulatedProductCards = [...accumulatedProductCards, ...parsed.product_cards];
+                                }
+                                // Update message with new nodes
+                                setMessages((prev) => {
+                                    const newMessages = [...prev];
+                                    const last = newMessages[newMessages.length - 1];
+                                    if (last.role === 'assistant') {
+                                        newMessages[newMessages.length - 1] = {
+                                            ...last,
+                                            citations: accumulatedCitations,
+                                            product_cards: accumulatedProductCards
+                                        };
+                                    }
+                                    return newMessages;
+                                });
+                            } else if (parsed.type === 'final') {
+                                if (parsed.options) accumulatedOptions = parsed.options;
+                                if (parsed.memory_context) setMemoryContext(parsed.memory_context);
+
+                                // Update message one last time with all final fields
+                                setMessages((prev) => {
+                                    const newMessages = [...prev];
+                                    const last = newMessages[newMessages.length - 1];
+                                    if (last.role === 'assistant') {
+                                        newMessages[newMessages.length - 1] = {
+                                            ...last,
+                                            options: accumulatedOptions
+                                        };
+                                    }
+                                    return newMessages;
+                                });
+                            } else if (parsed.type === 'error') {
+                                throw new Error(parsed.error);
                             }
-
-                            try {
-                                const parsed = JSON.parse(data);
-
-                                if (parsed.type === 'node') {
-                                    // Update thinking text with node name
-                                    setThinkingText(`Processing: ${parsed.node}...`);
-                                } else if (parsed.type === 'final') {
-                                    // Store final data
-                                    finalData = parsed;
-                                    assistantMessage = parsed.response || '';
-                                } else if (parsed.type === 'error') {
-                                    throw new Error(parsed.error);
-                                }
-                            } catch (e) {
-                                if (data !== '[DONE]') {
-                                    console.warn('Failed to parse SSE data:', data, e);
-                                }
+                        } catch (e) {
+                            if (data !== '[DONE]') {
+                                console.warn('Failed to parse SSE data:', data, e);
                             }
                         }
                     }
-                }
-
-                // Add final assistant message
-                if (finalData) {
-                    addMessage(
-                        'assistant',
-                        finalData.response,
-                        finalData.citations,
-                        finalData.product_cards,
-                        finalData.attachments,
-                        finalData.options
-                    );
-                    setMemoryContext(finalData.memory_context || null);
                 }
 
                 // Log browse event
@@ -242,7 +282,18 @@ export function useChat({ userId, sessionId, location, isShoppingMode = false }:
                 });
             } catch (err) {
                 console.error('Error fetching query:', err);
-                addMessage('assistant', `Failed to fetch response: ${err instanceof Error ? err.message : 'Unknown error'}`);
+                // Update the last message with error info if possible, otherwise add new
+                setMessages((prev) => {
+                    const newMessages = [...prev];
+                    const last = newMessages[newMessages.length - 1];
+                    const errorMessage = `Failed to fetch response: ${err instanceof Error ? err.message : 'Unknown error'}`;
+
+                    if (last && last.role === 'assistant' && !last.content) {
+                        newMessages[newMessages.length - 1] = { ...last, content: errorMessage };
+                        return newMessages;
+                    }
+                    return [...prev, { role: 'assistant', content: errorMessage, timestamp: new Date() }];
+                });
             } finally {
                 setIsLoading(false);
                 setThinkingText('');

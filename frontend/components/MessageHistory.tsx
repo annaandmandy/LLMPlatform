@@ -45,6 +45,9 @@ interface MessageHistoryProps {
 }
 
 function normalizeMarkdown(text: string) {
+  // Handle undefined or null text
+  if (!text) return '';
+
   // Ensure proper spacing before list items for markdown parsing
   // Also handle cases where list items might be split incorrectly
   return text
