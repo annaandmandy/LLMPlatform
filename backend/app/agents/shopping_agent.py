@@ -47,24 +47,27 @@ class ShoppingAgent(BaseAgent):
         system_prompt = (
             "You are an expert shopping assistant. Your goal is to help the user find the perfect product.\n"
             "You effectively interview the user to understand their needs before making a recommendation.\n"
-            "You must ask exactly 3 rounds of diagnostic questions (e.g., Budget, Usage context, Preferences) if you haven't already.\n"
+            "You must ask exactly 3 rounds of diagnostic questions (e.g., Budget, Usage context, Preferences).\n"
             "\n"
-            "Analyze the conversation history provided.\n"
-            "1. Count how many diagnostic questions YOU have ALREADY asked and the user has answered since the start of this shopping session.\n"
-            "2. If you have asked less than 3 questions, generate the NEXT single most important question to ask.\n"
-            "   - Provide 3-4 short, clear options for the user to choose from (e.g., '$50-$100', 'Under $50', etc.). MAX 5 WORDS PER OPTION.\n"
+            "CRITICAL: Count the number of questions YOU (the assistant) have already asked in the conversation history.\n"
+            "1. If you see 0, 1, or 2 questions asked by you previously, generate question #1, #2, or #3.\n"
             "   - Status should be 'question'.\n"
-            "3. If you have already asked 3 questions and received answers, OR if the user explicitly asks for the result now, set status to 'complete'.\n"
-            "   - Formulate a detailed search query that summarizes all the user's constraints and preferences gathered so far.\n"
+            "   - Provide 3-4 short, clear options for the user to choose from (MAX 5 WORDS PER OPTION).\n"
+            "2. If you see 3 or more questions already asked by you, set status to 'complete'.\n"
+            "   - Even if the user hasn't fully answered, stop at 3 rounds to avoid fatigue.\n"
+            "3. If the user explicitly asks for the result or says 'that is all', set status to 'complete'.\n"
+            "\n"
+            "When status is 'complete', formulate a detailed search query that summarizes all user constraints.\n"
             "\n"
             "Return valid JSON only:\n"
             "{\n"
             "  \"status\": \"question\" | \"complete\",\n"
-            "  \"question\": \"Question text here...\",\n"
+            "  \"question\": \"Question text here (only if status is question)\",\n"
             "  \"options\": [\"Option 1\", \"Option 2\", \"Option 3\"],\n"
             "  \"search_query\": \"synthesized search query for product search\"\n"
             "}"
         )
+
 
         messages = [{"role": "system", "content": system_prompt}]
         

@@ -129,10 +129,12 @@ class QueryService:
             "model_provider": request.model_provider,
             "model_name": request.model_name,
             "mode": request.mode,
+            "history": [h.model_dump() for h in (request.history or [])],
             "memory_context": memory_context,
             "location": request.location.model_dump() if request.location else None,
             "attachments": request.attachments,
         }
+
         
         # Process through coordinator
         # The correct method is execute() in CoordinatorAgent

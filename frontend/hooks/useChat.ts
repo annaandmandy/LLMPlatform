@@ -127,7 +127,8 @@ export function useChat({ userId, sessionId, location, isShoppingMode = false }:
             const modelProvider = currentModel?.provider || 'openai';
 
             // Prepare payload
-            const historyPayload = messages.slice(-6).map(({ role, content }) => ({ role, content }));
+            const historyPayload = messages.slice(-10).map(({ role, content }) => ({ role, content }));
+
             const attachmentPayload = attachments.map((a) => ({
                 type: a.type,
                 name: a.name,

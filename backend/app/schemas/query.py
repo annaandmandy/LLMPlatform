@@ -51,7 +51,8 @@ class QueryResponse(AppBaseModel):
     memory_context: Optional[Dict[str, Any]] = Field(None, description="Retrieved memory context")
     intent: Optional[str] = Field(None, description="Detected user intent")
     agents_used: Optional[List[str]] = Field(None, description="Agents that processed the request")
-    options: Optional[List[Dict[str, Any]]] = Field(None, description="Shopping mode options")
+    options: Optional[List[str]] = Field(None, description="Shopping mode options")
+
     
     # For shopping mode
     shopping_status: Optional[str] = Field(None, description="Shopping flow status: 'question' or 'complete'")
