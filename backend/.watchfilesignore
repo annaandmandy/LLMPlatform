@@ -1,0 +1,9 @@
+# Exclude virtual environment from auto-reload
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+logs/
+uploads/
+*.db
+*.sqlite
