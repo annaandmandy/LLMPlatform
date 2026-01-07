@@ -184,8 +184,8 @@ async def get_db_stats() -> dict:
         
         # Get counts for each collection
         collections = [
-            "queries", "events", "sessions", "summaries",
-            "vectors", "products", "agent_logs", "memories", "files"
+            "queries", "sessions", "summaries",
+            "products", "files"
         ]
         
         for coll_name in collections:
