@@ -1,19 +1,5 @@
 # Observability & Monitoring
 
-## Logging
-
-### Backend Logs
-The backend uses structured logging controlled by the `LOG_LEVEL` environment variable.
-
--   **Location**: `backend/app/logs/app.log` (persisted via Docker volumes).
--   **Levels**: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`.
--   **Structure**: Logs typically include timestamps, module names, and request IDs.
-
-**Viewing Logs (Docker):**
-```bash
-docker-compose logs -f backend
-```
-
 ## Database Collections & Schemas
 
 The system uses MongoDB Atlas with the following collections:
