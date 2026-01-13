@@ -59,61 +59,16 @@ async def query_llm_stream(
     Process a user query with streaming response.
     
     Returns Server-Sent Events (SSE) for streaming LLM responses.
-    Useful for real-time feedback and long-running queries.
-    
-    Args:
-        request: QueryRequest with user query and parameters
-        
-    Returns:
-        StreamingResponse with SSE events
+    Uses LangGraph events to show 'Chain of Thought' reasoning.
     """
     
     async def event_generator() -> AsyncGenerator[str, None]:
         """Generate SSE events for streaming response."""
         try:
-            # Import here to avoid circular dependency
-            from app.providers.factory import ProviderFactory
-            from app.services.memory_service import memory_service
-            from app.services.embedding_service import embedding_service
-            from datetime import datetime
-            
-            # Use QueryService to process end-to-end (includes agents, memory, embeddings)
-            result = await query_service.process_query(request)
-            
-            response_text = result.response
-            citations = result.citations
-            product_cards = result.product_cards
-            options = result.options
-            
-            # Simulate streaming by sending response in chunks
-            # This provides a better UX even without true streaming in providers
-            chunk_size = 50  # characters per chunk
-            for i in range(0, len(response_text), chunk_size):
-                chunk = response_text[i:i + chunk_size]
-                yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
-                # Small delay to simulate streaming (optional)
-                await asyncio.sleep(0.01)
-            
-            # Send citations if any
-            if citations:
-                yield f"data: {json.dumps({'type': 'node', 'node_type': 'citations', 'citations': citations})}\n\n"
-            
-            # Send product cards if any
-            if product_cards:
-                yield f"data: {json.dumps({'type': 'node', 'node_type': 'product_cards', 'product_cards': product_cards})}\n\n"
-            
-            # Send final data with metadata
-            final_data = {
-                'type': 'final',
-                'options': options,
-                'metadata': {
-                    'model': request.model_name
-                }
-            }
-            yield f"data: {json.dumps(final_data)}\n\n"
-            
-            # 4. Send completion event
-            yield f"data: {json.dumps({'type': 'done', 'message': 'Query complete'})}\n\n"
+            # Use the new streaming method in QueryService
+            async for event in query_service.stream_query(request):
+                # Format as SSE
+                yield f"data: {json.dumps(event)}\n\n"
             
         except Exception as e:
             logger.error(f"Streaming failed: {e}")
@@ -129,7 +84,7 @@ async def query_llm_stream(
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",  # Disable nginx buffering
+            "X-Accel-Buffering": "no",
         }
     )
 

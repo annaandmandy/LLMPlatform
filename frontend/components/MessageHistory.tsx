@@ -4,6 +4,7 @@ import React, { useState, CSSProperties, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import ProductCard from "./ProductCard";
+import ThinkingProcess from "./ThinkingProcess";
 import { logEvent } from "../lib/apiClient";
 
 interface Citation {
@@ -32,6 +33,7 @@ interface Message {
   product_cards?: ProductCardData[];
   attachments?: { type: string; base64?: string; name?: string }[];
   options?: string[];
+  thoughts?: { agent: string; status: string; timestamp: number }[];
 }
 
 interface MessageHistoryProps {
@@ -224,6 +226,12 @@ export default function MessageHistory({
                 }
               >
                 <div className="max-w-none">
+                  {message.role === "assistant" && message.thoughts && message.thoughts.length > 0 && (
+                    <ThinkingProcess
+                      thoughts={message.thoughts}
+                      isComplete={!!message.content && !isLoading}
+                    />
+                  )}
                   {message.role === "assistant"
                     ? renderMarkdown(normalizeMarkdown(message.content), queryContext)
                     : message.content}

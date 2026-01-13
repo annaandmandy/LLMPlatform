@@ -1,0 +1,69 @@
+{
+    "experiment_id": "general_v1",
+    "description": "Standard General Chat Experiment",
+    "version": "1.0.0",
+    "default_model": "gpt-4o-mini",
+    "enable_thinking_process": false,
+    "show_sponsored_labels": false,
+    "entry_point": "memory",
+    "agents": [
+        {
+            "id": "memory",
+            "type": "MemoryAgent"
+        },
+        {
+            "id": "vision",
+            "type": "VisionAgent"
+        },
+        {
+            "id": "writer",
+            "type": "WriterAgent"
+        },
+        {
+            "id": "product",
+            "type": "ProductAgent"
+        },
+        {
+            "id": "shopping",
+            "type": "ShoppingAgent"
+        }
+    ],
+    "edges": [
+        {
+            "source": "memory",
+            "target": "vision"
+        },
+        {
+            "source": "vision",
+            "target": "writer",
+            "condition": "route_intent",
+            "path_map": {
+                "shopping": "shopping",
+                "product_search": "writer",
+                "general": "writer"
+            }
+        },
+        {
+            "source": "writer",
+            "target": "product",
+            "condition": "route_product",
+            "path_map": {
+                "product": "product",
+                "end": "__end__"
+            }
+        },
+        {
+            "source": "product",
+            "target": "__end__"
+        },
+        {
+            "source": "shopping",
+            "target": "writer",
+            "condition": "route_shopping",
+            "path_map": {
+                "continue": "writer",
+                "end": "__end__"
+            }
+        }
+    ]
+}

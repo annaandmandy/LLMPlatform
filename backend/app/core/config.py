@@ -49,6 +49,8 @@ class Settings(BaseSettings):
     
     # ==================== External Services ====================
     SERPAPI_KEY: Optional[str] = None  # For product search
+    FIRECRAWL_API_KEY: Optional[str] = None  # For web scraping
+    FIRECRAWL_API_URL: Optional[str] = "https://api.firecrawl.dev"
     
     # ==================== File Upload ====================
     UPLOAD_DIR: Path = Path("uploads")

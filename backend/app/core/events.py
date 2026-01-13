@@ -51,7 +51,11 @@ async def startup_event():
         logger.error(f"❌ Failed to initialize agents: {e}")
         logger.warning("⚠️ Multi-agent features may not work")
     
-    logger.info("🎉 Application startup complete!")
+    # Initialize Experiment Service (Graph Factory)
+    from app.services.experiment_service import experiment_service
+    await experiment_service.initialize()
+    
+    logger.info("✅ Application startup complete")
 
 
 async def shutdown_event():

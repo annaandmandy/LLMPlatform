@@ -119,28 +119,212 @@ class QueryService:
         memory_context: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Process query using multi-agent system."""
-        coordinator = get_coordinator()
+        # Use the dynamic Experiment Graph
+        from app.services.experiment_service import experiment_service
         
-        # Build agent request
-        agent_request = {
+        # Ensure graph is ready (lazy init fallback)
+        try:
+            graph = experiment_service.get_graph()
+        except RuntimeError:
+            await experiment_service.initialize()
+            graph = experiment_service.get_graph()
+
+        # Build initial AgentState
+        # Note: We must align with AgentState definition in app.agents.graph (or schema)
+        initial_state = {
             "query": request.query,
             "user_id": request.user_id,
             "session_id": request.session_id,
-            "model_provider": request.model_provider,
-            "model_name": request.model_name,
-            "mode": request.mode,
             "history": [h.model_dump() for h in (request.history or [])],
-            "memory_context": memory_context,
-            "location": request.location.model_dump() if request.location else None,
+            "mode": request.mode,
             "attachments": request.attachments,
+            "model": request.model_name or "gpt-4o-mini",
+            # Inject memory context directly into state
+            "memory_context": memory_context,
+            
+            # Initial defaults
+            "agents_used": [],
+            "intent": "general", 
+            "response": None,
         }
 
+        # Run the graph
+        # ainvoke returns the final state
+        final_state = await graph.ainvoke(initial_state)
         
-        # Process through coordinator
-        # The correct method is execute() in CoordinatorAgent
-        result = await coordinator.execute(agent_request)
+        # Map final_state back to the dictionary expected by QueryService/API
+        # The API expects keys like "response", "intent", "product_cards" etc.
+        
+        result = {
+            "response": final_state.get("response"),
+            "intent": final_state.get("intent"),
+            "intent_confidence": final_state.get("intent_confidence", 1.0),
+            "agents_used": final_state.get("agents_used", []),
+            "citations": final_state.get("citations"),
+            "product_cards": final_state.get("product_cards"),
+            "product_json": final_state.get("structured_products"),
+            "options": final_state.get("shopping_result", {}).get("options") if final_state.get("shopping_status") == "question" else final_state.get("options"), # handle variance in how options are stored
+            "shopping_status": final_state.get("shopping_status"),
+            "memory_context": final_state.get("memory_context"),
+            "vision_notes": final_state.get("vision_notes"),
+        }
         
         return result
+    
+    async def stream_query(
+        self,
+        request: QueryRequest
+    ) -> Any:
+        # Use the dynamic Experiment Graph
+        from app.services.experiment_service import experiment_service
+        
+        # Ensure graph is ready
+        try:
+            graph = experiment_service.get_graph()
+        except RuntimeError:
+            await experiment_service.initialize()
+            graph = experiment_service.get_graph()
+
+        start_time = datetime.utcnow()
+        
+        # 1. Generate embedding
+        query_embedding = await embedding_service.generate_embedding(request.query)
+        
+        # 2. Get memory context
+        memory_context = await memory_service.get_memory_context(
+            user_id=request.user_id,
+            query=request.query,
+            query_embedding=query_embedding,
+            limit=5
+        )
+
+        # 3. Build AgentState
+        initial_state = {
+            "query": request.query,
+            "user_id": request.user_id,
+            "session_id": request.session_id,
+            "history": [h.model_dump() for h in (request.history or [])],
+            "mode": request.mode,
+            "attachments": request.attachments,
+            "model": request.model_name or "gpt-4o-mini",
+            "memory_context": memory_context,
+            "agents_used": [],
+            "intent": "general", 
+            "response": None,
+        }
+
+        full_response = ""
+        full_citations = []
+        full_product_cards = []
+        full_options = []
+        intent = "general"
+        shopping_status = None
+        
+        # 4. Stream Events
+        # We use astream_events to get internal updates
+        async for event in graph.astream_events(initial_state, version="v1"):
+            kind = event["event"]
+            name = event["name"]
+            data = event["data"]
+            
+            # Filter for specific events we want to surface to UI
+            
+            # Case A: Chain/Agent Start (Thought)
+            # We filter for node IDs from the experiment config (lowercase) OR AgentType names
+            # Map node IDs to friendly agent names
+            agent_node_map = {
+                "memory": "MemoryAgent",
+                "vision": "VisionAgent", 
+                "writer": "WriterAgent",
+                "product": "ProductAgent",
+                "shopping": "ShoppingAgent",
+                # Also support class names directly
+                "MemoryAgent": "MemoryAgent",
+                "VisionAgent": "VisionAgent",
+                "WriterAgent": "WriterAgent",
+                "ProductAgent": "ProductAgent",
+                "ShoppingAgent": "ShoppingAgent",
+            }
+            
+            if kind == "on_chain_start" and name in agent_node_map:
+                 yield {
+                     "type": "thought",
+                     "agent": agent_node_map[name],
+                     "status": "started"
+                 }
+                 
+            # Case B: LLM Streaming (Content)
+            # We assume WriterAgent emits the final response via 'on_chat_model_stream'
+            # Note: We need to be careful not to stream internal monologue if we add that later.
+            # For now, any chat model stream in the graph is probably intended for user, 
+            # OR we check if it's inside WriterAgent.
+            elif kind == "on_chat_model_stream":
+                # Check metadata or parent to ensure it's the response generation
+                # For simplicity, we stream all chat tokens as 'chunk'.
+                # Ideally check if 'writer' is in tags or parent.
+                content = data["chunk"].content
+                if content:
+                    full_response += content
+                    yield {
+                        "type": "chunk",
+                        "content": content
+                    }
+            
+            # Case C: Node/Chain End (Accumulate detailed results)
+            elif kind == "on_chain_end":
+                 output = data.get("output")
+                 if output and isinstance(output, dict):
+                     # Check for WriterAgent response (since it doesn't use LangChain streaming)
+                     if "response" in output and output["response"] and not full_response:
+                         # Emit the entire response as a single chunk
+                         full_response = output["response"]
+                         yield {
+                             "type": "chunk",
+                             "content": full_response
+                         }
+                     if "citations" in output and output["citations"]:
+                         full_citations = output["citations"]
+                         yield {
+                             "type": "node",
+                             "node_type": "citations",
+                             "citations": full_citations
+                         }
+                     if "products" in output and output["products"]:
+                         full_product_cards = output["products"]
+                         yield {
+                             "type": "node",
+                             "node_type": "product_cards",
+                             "product_cards": full_product_cards
+                         }
+                     if "intent" in output:
+                         intent = output["intent"]
+                         
+        # 5. Log after stream
+        end_time = datetime.utcnow()
+        latency_ms = (end_time - start_time).total_seconds() * 1000
+        
+        result = {
+            "intent": intent, # This might need to be extracted better from state
+            "citations": full_citations,
+            "product_cards": full_product_cards,
+            "options": full_options,
+            "shopping_status": shopping_status,
+            "tokens": {}
+        }
+        
+        # Note: Logging might be slightly incomplete without the final state object
+        # but we have the accumulated response.
+        await self._log_query(
+            request=request,
+            response=full_response,
+            embedding=query_embedding,
+            memory_context=memory_context,
+            result=result,
+            latency_ms=latency_ms
+        )
+        
+        # Yield final DONE
+        yield {"type": "done", "message": "Query complete"}
     
     async def _process_with_provider(
         self,

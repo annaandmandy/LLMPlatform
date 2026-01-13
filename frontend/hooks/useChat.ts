@@ -30,6 +30,7 @@ export interface Message {
     product_cards?: ProductCardData[];
     attachments?: { type: string; base64?: string; name?: string }[];
     options?: string[];
+    thoughts?: { agent: string; status: string; timestamp: number }[];
 }
 
 export interface AttachedMedia {
@@ -211,6 +212,36 @@ export function useChat({ userId, sessionId, location, isShoppingMode = false }:
 
                             if (parsed.type === 'status' || parsed.type === 'message') {
                                 setThinkingText(parsed.message || parsed.content || 'Thinking...');
+                            } else if (parsed.type === 'thought') {
+                                // Update thinking text to show current agent
+                                const agentDisplayNames: Record<string, string> = {
+                                    'MemoryAgent': 'Retrieving memory...',
+                                    'VisionAgent': 'Analyzing images...',
+                                    'WriterAgent': 'Generating response...',
+                                    'ProductAgent': 'Searching products...',
+                                    'ShoppingAgent': 'Finding options...',
+                                };
+                                setThinkingText(agentDisplayNames[parsed.agent] || `${parsed.agent} processing...`);
+
+                                // Add thought to the current message
+                                setMessages((prev) => {
+                                    const newMessages = [...prev];
+                                    if (newMessages.length > 0) {
+                                        const last = newMessages[newMessages.length - 1];
+                                        if (last.role === 'assistant') {
+                                            const newThought = {
+                                                agent: parsed.agent,
+                                                status: parsed.status,
+                                                timestamp: Date.now()
+                                            };
+                                            newMessages[newMessages.length - 1] = {
+                                                ...last,
+                                                thoughts: [...(last.thoughts || []), newThought]
+                                            };
+                                        }
+                                    }
+                                    return newMessages;
+                                });
                             } else if (parsed.type === 'chunk') {
                                 setThinkingText(''); // Clear thinking text once we start getting chunks
                                 accumulatedContent += (parsed.content || '');
