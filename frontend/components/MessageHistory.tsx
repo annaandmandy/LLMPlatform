@@ -336,59 +336,23 @@ export default function MessageHistory({
         );
       })}
 
-      {isLoading && (
-        <div className="flex justify-start">
-          <div className="max-w-[85%] w-full">
-            {thinkingText ? (
-              <div className="flex items-center gap-2 text-slate-600 text-sm whitespace-nowrap overflow-hidden">
-                {thinkingText.startsWith("Searching for products:") ? (
-                  <>
-                    <svg className="w-3.5 h-3.5 text-blue-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                    </svg>
-                    <span className="text-slate-500 shrink-0">Searching for</span>
-                    <span className="font-medium text-slate-700 overflow-hidden text-ellipsis">
-                      {thinkingText.replace("Searching for products: ", "")}
-                    </span>
-                  </>
-                ) : thinkingText.includes("shopping") || thinkingText.includes("Shopping") ? (
-                  <>
-                    <svg className="w-3.5 h-3.5 text-indigo-600 shrink-0 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
-                    </svg>
-                    <span className="text-slate-700 overflow-hidden text-ellipsis">{thinkingText}</span>
-                  </>
-                ) : thinkingText.includes("Processing:") ? (
-                  <>
-                    <svg className="w-3.5 h-3.5 text-purple-600 shrink-0 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
-                    <span className="text-slate-700 overflow-hidden text-ellipsis">{thinkingText}</span>
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-3.5 h-3.5 text-slate-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                    </svg>
-                    <span className="text-slate-700 overflow-hidden text-ellipsis">{thinkingText}</span>
-                  </>
-                )}
-                <span className="shrink-0 flex items-center gap-1 ml-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style={typingDotStyle(0.15)} />
-                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style={typingDotStyle(0.3)} />
-                </span>
-              </div>
-            ) : (
-              <div className="flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" />
-                <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style={typingDotStyle(0.15)} />
-                <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style={typingDotStyle(0.3)} />
-              </div>
+      {/* {isLoading && (
+        <div className="flex justify-start pl-1">
+          <div className="flex items-center gap-3 px-4 py-3 bg-white/50 rounded-2xl border border-transparent">
+            <div className="flex space-x-1">
+              <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0s' }}></div>
+              <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+              <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+            </div>
+
+            {thinkingText && (
+              <span className="text-sm text-slate-500 font-medium animate-pulse">
+                {thinkingText.replace("Searching for products: ", "Searching: ")}
+              </span>
             )}
           </div>
         </div>
-      )}
+      )} */}
       <div ref={messagesEndRef} />
     </div>
   );

@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+
+import React, { useState, useEffect } from 'react';
 
 export interface Thought {
     agent: string;
@@ -12,54 +13,47 @@ interface ThinkingProcessProps {
 }
 
 export default function ThinkingProcess({ thoughts, isComplete = false }: ThinkingProcessProps) {
-    const [isOpen, setIsOpen] = useState(true);
+    const [isOpen, setIsOpen] = useState(false); // Default to collapsed
 
     if (!thoughts || thoughts.length === 0) return null;
 
     return (
-        <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 overflow-hidden">
+        <div className="my-2">
+            {/* Minimal Trigger */}
             <button
                 onClick={() => setIsOpen(!isOpen)}
-                className="w-full px-4 py-2 flex items-center justify-between text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors"
-                title="Toggle thinking process"
+                className="flex items-center gap-2 text-xs text-slate-400 hover:text-slate-600 transition-colors select-none"
             >
-                <div className="flex items-center gap-2">
-                    {isComplete ? (
-                        <span className="text-green-600">✓ Finished Thinking</span>
-                    ) : (
-                        <span className="flex items-center gap-2 text-blue-600">
-                            <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse" />
-                            Thinking Process...
-                        </span>
-                    )}
-                    <span className="bg-slate-200 px-1.5 py-0.5 rounded-full text-[10px] text-slate-500">
-                        {thoughts.length} steps
-                    </span>
-                </div>
-                <span className={`transform transition-transform ${isOpen ? 'rotate-180' : ''}`}>
-                    ▼
+                <span className={`transform transition-transform duration-200 ${isOpen ? 'rotate-90' : ''}`}>
+                    ▶
                 </span>
+                <span className="font-medium">
+                    {isComplete ? 'Processed' : 'Thinking'}
+                </span>
+
+                {!isComplete && (
+                    <span className="flex gap-1 ml-1">
+                        <span className="w-1 h-1 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0s' }}></span>
+                        <span className="w-1 h-1 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></span>
+                        <span className="w-1 h-1 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></span>
+                    </span>
+                )}
             </button>
 
+            {/* Expanded Content */}
             {isOpen && (
-                <div className="p-3 text-xs space-y-2 bg-slate-50 border-t border-slate-200">
+                <div className="mt-2 pl-2 border-l-2 border-slate-100 ml-1 space-y-3 py-1">
                     {thoughts.map((thought, idx) => (
-                        <div key={idx} className="flex items-center gap-2 text-slate-700">
-                            <div className="w-5 flex justify-center shrink-0">
-                                {idx === thoughts.length - 1 && !isComplete ? (
-                                    <span className="animate-spin">⚙️</span>
-                                ) : (
-                                    <span>🤖</span>
-                                )}
+                        <div key={idx} className="pl-3 text-xs">
+                            <div className="flex items-center gap-2 text-slate-700 font-medium">
+                                <span>{thought.agent}</span>
+                                <span className="text-[10px] text-slate-400 font-normal opacity-75">
+                                    {new Date(thought.timestamp).toLocaleTimeString([], { minute: '2-digit', second: '2-digit' })}
+                                </span>
                             </div>
-                            <div className="flex-1">
-                                <span className="font-semibold text-slate-800">{thought.agent}</span>
-                                <span className="mx-1 text-slate-400">→</span>
-                                <span className="text-slate-600">{thought.status}</span>
+                            <div className="text-slate-500 mt-0.5">
+                                {thought.status}
                             </div>
-                            <span className="text-[10px] text-slate-400 font-mono">
-                                {new Date(thought.timestamp).toLocaleTimeString([], { minute: '2-digit', second: '2-digit' })}
-                            </span>
                         </div>
                     ))}
                 </div>
