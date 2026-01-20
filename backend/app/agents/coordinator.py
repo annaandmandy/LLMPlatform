@@ -121,7 +121,10 @@ class CoordinatorAgent(BaseAgent):
                 logger.warning(f"MemoryAgent retrieval failed: {e}")
 
         # Vision step: summarize attachments if present
-        if self.vision_agent and attachments:
+        # Only invoke if there are actual images
+        has_images = any(att.get("type") == "image" for att in attachments)
+        
+        if self.vision_agent and has_images:
             try:
                 vision_result = await self.vision_agent.run(
                     {

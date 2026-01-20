@@ -33,4 +33,15 @@ def route_product(state: Dict[str, Any]) -> str:
     """Route after product node."""
     # In the original graph, product always went to END.
     # But for flexibility, let's allow it to potentially loop or go elsewhere.
-    return "end" # Default behavior
+    # Route based on intent (mirroring original graph logic)
+    intent = state.get("intent")
+    if intent == "product_search":
+        return "product"
+    return "end"
+
+def route_vision(state: Dict[str, Any]) -> str:
+    """Route to vision agent only if images are present."""
+    attachments = state.get("attachments", []) or []
+    has_images = any(att.get("type") == "image" for att in attachments)
+    return "vision" if has_images else "no_vision"
+

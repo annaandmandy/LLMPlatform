@@ -67,13 +67,18 @@ async def memory_node(state: AgentState):
 
 async def vision_node(state: AgentState):
     agent = _agents.get("vision_agent")
-    if not agent or not state.get("attachments"):
+    attachments = state.get("attachments", []) or []
+    
+    # Check if there are any actual images
+    has_images = any(att.get("type") == "image" for att in attachments)
+    
+    if not agent or not has_images:
         return {}
     
     try:
         vision_result = await agent.run({
             "query": state["query"],
-            "attachments": state.get("attachments", []),
+            "attachments": attachments,
             "session_id": state["session_id"],
             "user_id": state["user_id"],
         })

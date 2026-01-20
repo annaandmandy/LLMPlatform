@@ -26,15 +26,28 @@
         {
             "id": "shopping",
             "type": "ShoppingAgent"
+        },
+        {
+            "id": "intent",
+            "type": "IntentAgent"
         }
     ],
     "edges": [
         {
             "source": "memory",
-            "target": "vision"
+            "target": "vision",
+            "condition": "route_vision",
+            "path_map": {
+                "vision": "vision",
+                "no_vision": "intent"
+            }
         },
         {
             "source": "vision",
+            "target": "intent"
+        },
+        {
+            "source": "intent",
             "target": "writer",
             "condition": "route_intent",
             "path_map": {

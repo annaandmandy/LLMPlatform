@@ -238,12 +238,14 @@ class QueryService:
                 "writer": "WriterAgent",
                 "product": "ProductAgent",
                 "shopping": "ShoppingAgent",
+                "intent": "IntentAgent",
                 # Also support class names directly
                 "MemoryAgent": "MemoryAgent",
                 "VisionAgent": "VisionAgent",
                 "WriterAgent": "WriterAgent",
                 "ProductAgent": "ProductAgent",
                 "ShoppingAgent": "ShoppingAgent",
+                "IntentAgent": "IntentAgent",
             }
             
             if kind == "on_chain_start" and name in agent_node_map:
@@ -291,6 +293,13 @@ class QueryService:
                          }
                      if "products" in output and output["products"]:
                          full_product_cards = output["products"]
+                         yield {
+                             "type": "node",
+                             "node_type": "product_cards",
+                             "product_cards": full_product_cards
+                         }
+                     elif "product_cards" in output and output["product_cards"]:
+                         full_product_cards = output["product_cards"]
                          yield {
                              "type": "node",
                              "node_type": "product_cards",

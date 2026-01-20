@@ -144,6 +144,12 @@ class ExperimentLoader:
             
             # The agent `run` or `execute` maps inputs -> outputs
             try:
+                # Pre-check for VisionAgent to avoid running if no images
+                if agent_conf.type == "VisionAgent":
+                    atts = req.get("attachments") or []
+                    if not any(att.get("type") == "image" for att in atts):
+                        return {}
+
                 # `BaseAgent.run` expects a dict
                 result = await agent_instance.run(req)
                 output = result.get("output", {})
@@ -159,7 +165,18 @@ class ExperimentLoader:
                     updates["memory_context"] = output
                     
                 elif agent_conf.type == "VisionAgent":
-                    updates["vision_notes"] = output.get("vision_notes")
+                    # Check if there are any actual images
+                    atts = req.get("attachments") or []
+                    has_images = any(att.get("type") == "image" for att in atts)
+                    
+                    if has_images:
+                        updates["vision_notes"] = output.get("vision_notes")
+                    else:
+                        # If no images, we shouldn't have run, but if we did/are here, 
+                        # just ensure we don't return partial notes or errors.
+                        # Ideally we skip earlier, but identifying 'VisionAgent' dynamically 
+                        # to skip invocation requires checking before 'await agent_instance.run(req)'
+                        updates["vision_notes"] = ""
                     
                 elif agent_conf.type == "ShoppingAgent":
                      updates["shopping_status"] = output.get("status")
@@ -177,6 +194,10 @@ class ExperimentLoader:
                 elif agent_conf.type == "ProductAgent":
                     updates["product_cards"] = output.get("products")
                     updates["structured_products"] = output.get("structured_products")
+
+                elif agent_conf.type == "IntentAgent":
+                    updates["intent"] = output.get("intent")
+                    updates["intent_confidence"] = output.get("intent_confidence")
                     
                 # Generic fallback
                 if "agents_used" not in updates:

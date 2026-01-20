@@ -13,8 +13,9 @@ from app.agents.shopping_agent import ShoppingAgent
 from app.agents.writer_agent import WriterAgent
 from app.agents.product_agent import ProductAgent
 from app.agents.coordinator import CoordinatorAgent
+from app.agents.intent_agent import IntentAgent
 
-from app.experiments.conditions import route_intent, route_shopping, route_product
+from app.experiments.conditions import route_intent, route_shopping, route_product, route_vision
 from app.tools.web_scraper import scrape_web
 from app.tools.file_search import search_files
 
@@ -27,7 +28,9 @@ _AGENT_REGISTRY: Dict[str, AgentClass] = {
     "ShoppingAgent": ShoppingAgent,
     "WriterAgent": WriterAgent,
     "ProductAgent": ProductAgent,
+    "ProductAgent": ProductAgent,
     "CoordinatorAgent": CoordinatorAgent,
+    "IntentAgent": IntentAgent,
 }
 
 _TOOL_REGISTRY: Dict[str, Any] = {
@@ -41,6 +44,7 @@ _CONDITION_REGISTRY: Dict[str, Callable] = {
     "route_intent": route_intent,
     "route_shopping": route_shopping,
     "route_product": route_product,
+    "route_vision": route_vision,
 }
 
 def get_agent_class(name: str) -> AgentClass:

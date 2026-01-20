@@ -71,7 +71,8 @@ async def query_llm_stream(
                 yield f"data: {json.dumps(event)}\n\n"
             
         except Exception as e:
-            logger.error(f"Streaming failed: {e}")
+            import traceback
+            logger.error(f"Streaming failed: {e}\n{traceback.format_exc()}")
             error_data = {
                 'type': 'error',
                 'error': str(e)
