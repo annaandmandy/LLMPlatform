@@ -112,14 +112,22 @@ class ProductAgent(BaseAgent):
             )
 
             # Search for real products for each mention
-            all_products = []
             extracted_names = [mention["name"] for mention in structured_mentions]
+            
+            # Create search tasks
+            tasks = []
             for mention in structured_mentions[:3]:  # Limit to top 3 mentions
                 search_term = mention["name"]
                 if mention.get("category"):
                     search_term = f"{search_term} {mention['category']}".strip()
+                tasks.append(self._search_real_products(search_term, max_results=max_results))
 
-                products = await self._search_real_products(search_term, max_results=max_results)
+            # Execute searches in parallel
+            logger.info(f"Starting {len(tasks)} parallel product searches...")
+            search_results = await asyncio.gather(*tasks)
+            
+            all_products = []
+            for products in search_results:
                 all_products.extend(products)
 
             # Limit total products returned
